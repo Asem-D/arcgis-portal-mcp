@@ -5,7 +5,7 @@ from arcgis_portal_mcp.client import ArcGISClient
 
 
 def test_version():
-    assert __version__ == "0.2.0"
+    assert __version__ == "1.0.0"
 
 
 def test_client_init():
@@ -36,6 +36,14 @@ def test_server_tools_count():
         "get_user_details", "create_group", "invite_to_group",
         # Phase 2 — Content Management
         "update_item", "delete_item", "share_item", "get_item_data",
+        # Phase 3 — Service Publishing
+        "upload_item", "publish_from_item", "create_service",
+        # Phase 3 — Geoprocessing
+        "execute_gp_task", "submit_gp_job", "get_gp_job_status",
+        # Phase 3 — Portal Admin
+        "portal_system_info", "list_licenses", "portal_usage",
+        # Phase 3 — Batch Operations
+        "batch_delete_items", "batch_share_items", "batch_update_items",
     ]
     assert tool_names == expected, f"Expected tools: {expected}, got: {tool_names}"
 

@@ -831,6 +831,472 @@ class ArcGISClient:
         return self.admin_request("/healthCheck") or {"error": "Health check failed"}
 
     # ------------------------------------------------------------------
+    # Service Publishing (Phase 3)
+    # ------------------------------------------------------------------
+
+    def upload_file(
+        self,
+        file_path: str,
+        title: str,
+        type_: str,
+        tags: str = "",
+        description: str = "",
+        snippet: str = "",
+        access: str = "private",
+        owner: str | None = None,
+    ) -> dict[str, Any]:
+        """Upload a file to portal content.
+
+        Supports CSV, Shapefile (zipped), GeoJSON, KML, and other GIS formats.
+
+        Args:
+            file_path: Local path to the file to upload.
+            title: Item title.
+            type_: ArcGIS item type (e.g., 'CSV', 'Shapefile', 'GeoJSON',
+                'KML', 'File Geodatabase', 'Service Definition').
+            tags: Comma-separated tags.
+            description: Item description.
+            snippet: Short summary.
+            access: private, org, or public.
+            owner: Owner username. Defaults to authenticated user.
+
+        Returns:
+            Dict with item info (id, item, owner, etc.).
+        """
+        if not owner:
+            owner = self.username
+        if not owner:
+            return {"error": "No owner specified and not connected as a user."}
+
+        from pathlib import Path
+
+        p = Path(file_path)
+        if not p.exists():
+            return {"error": f"File not found: {file_path}"
+            }
+
+        url = f"{self.sharing_url}/content/users/{owner}/add"
+        params: dict[str, Any] = {
+            "title": title,
+            "type": type_,
+            "access": access,
+            "f": "json",
+        }
+        if tags:
+            params["tags"] = tags
+        if description:
+            params["description"] = description
+        if snippet:
+            params["snippet"] = snippet
+        if self.token:
+            params["token"] = self.token
+
+        try:
+            with open(p, "rb") as fh:
+                files = {"file": (p.name, fh)}
+                resp = self._session.post(url, data=params, files=files, timeout=120)
+            resp.raise_for_status()
+            data = resp.json()
+            if "error" in data:
+                return {"error": data["error"]}
+            return data
+        except requests.exceptions.RequestException as e:
+            logger.error("Upload failed: %s", e)
+            return {"error": str(e)}
+        except json.JSONDecodeError:
+            return {"error": "Non-JSON response from upload"}
+
+    def publish_from_item(
+        self,
+        item_id: str,
+        service_type: str = "featureService",
+        publish_parameters: dict[str, Any] | None = None,
+        owner: str | None = None,
+    ) -> dict[str, Any]:
+        """Publish an uploaded item as a hosted feature service.
+
+        Args:
+            item_id: The ID of the uploaded item to publish.
+            service_type: 'featureService' or 'mapService'.
+            publish_parameters: Optional dict for CSV/Shapefile publish config
+                (e.g., layer configuration, output name).
+            owner: Owner username.
+
+        Returns:
+            Dict with publish result including service URL.
+        """
+        if not owner:
+            owner = self.username
+        if not owner:
+            return {"error": "No owner specified."}
+
+        data: dict[str, Any] = {
+            "itemId": item_id,
+            "serviceType": service_type,
+        }
+        if publish_parameters:
+            data["publishParameters"] = json.dumps(publish_parameters)
+
+        result = self._sharing_request(
+            f"/content/users/{owner}/publish",
+            params=data,
+            method="POST",
+        )
+        return result or {"error": "Publish failed"}
+
+    def create_service(
+        self,
+        name: str,
+        service_type: str = "Feature Service",
+        description: str = "",
+        snippet: str = "",
+        tags: str = "",
+        access: str = "private",
+        is_view: bool = False,
+        create_parameters: dict[str, Any] | None = None,
+        owner: str | None = None,
+    ) -> dict[str, Any]:
+        """Create an empty hosted feature service.
+
+        Args:
+            name: Service name.
+            service_type: 'Feature Service' or 'Map Service'.
+            description: Service description.
+            snippet: Short summary.
+            tags: Comma-separated tags.
+            access: private, org, or public.
+            is_view: Create as a hosted feature layer view.
+            create_parameters: Optional JSON dict for advanced schema config.
+            owner: Owner username.
+
+        Returns:
+            Dict with created service info including service URL.
+        """
+        if not owner:
+            owner = self.username
+        if not owner:
+            return {"error": "No owner specified."}
+
+        data: dict[str, Any] = {
+            "name": name,
+            "serviceType": service_type,
+            "description": description,
+            "access": access,
+            "isView": str(is_view).lower(),
+        }
+        if snippet:
+            data["snippet"] = snippet
+        if tags:
+            data["tags"] = tags
+        if create_parameters:
+            data["createParameters"] = json.dumps(create_parameters)
+
+        result = self._sharing_request(
+            f"/content/users/{owner}/createService",
+            params=data,
+            method="POST",
+        )
+        return result or {"error": "Service creation failed"}
+
+    # ------------------------------------------------------------------
+    # Geoprocessing (Phase 3)
+    # ------------------------------------------------------------------
+
+    def execute_gp_task(
+        self,
+        gp_url: str,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Execute a synchronous geoprocessing task.
+
+        Args:
+            gp_url: The GP service REST endpoint (e.g.,
+                'https://server/arcgis/rest/services/MyGP/GPServer/MyTask').
+            params: Input parameters as a dict.
+
+        Returns:
+            Dict with results (outputs, messages).
+        """
+        url = gp_url.rstrip("/") + "/execute"
+        request_params: dict[str, Any] = {"f": "json"}
+        if self.token:
+            request_params["token"] = self.token
+        if params:
+            for k, v in params.items():
+                request_params[k] = v if isinstance(v, str) else json.dumps(v)
+
+        try:
+            resp = self._session.post(url, data=request_params, timeout=300)
+            resp.raise_for_status()
+            data = resp.json()
+            if "error" in data:
+                return {"error": data["error"]}
+            return {
+                "status": data.get("executionType", "esriExecutionTypeSynchronous"),
+                "results": data.get("results", []),
+                "messages": data.get("messages", []),
+            }
+        except requests.exceptions.RequestException as e:
+            logger.error("GP task failed: %s", e)
+            return {"error": str(e)}
+        except json.JSONDecodeError:
+            return {"error": "Non-JSON response from GP service"}
+
+    def submit_gp_job(
+        self,
+        gp_url: str,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Submit an asynchronous geoprocessing job.
+
+        Args:
+            gp_url: The GP service REST endpoint.
+            params: Input parameters as a dict.
+
+        Returns:
+            Dict with job ID and status URL for polling.
+        """
+        url = gp_url.rstrip("/") + "/submitJob"
+        request_params: dict[str, Any] = {"f": "json"}
+        if self.token:
+            request_params["token"] = self.token
+        if params:
+            for k, v in params.items():
+                request_params[k] = v if isinstance(v, str) else json.dumps(v)
+
+        try:
+            resp = self._session.post(url, data=request_params, timeout=120)
+            resp.raise_for_status()
+            data = resp.json()
+            if "error" in data:
+                return {"error": data["error"]}
+            job_id = data.get("jobId", "")
+            return {
+                "job_id": job_id,
+                "job_status": data.get("jobStatus", "esriJobSubmitted"),
+                "status_url": gp_url.rstrip("/") + f"/jobs/{job_id}",
+            }
+        except requests.exceptions.RequestException as e:
+            logger.error("GP job submission failed: %s", e)
+            return {"error": str(e)}
+        except json.JSONDecodeError:
+            return {"error": "Non-JSON response from GP service"}
+
+    def get_gp_job_status(
+        self,
+        gp_url: str,
+        job_id: str,
+    ) -> dict[str, Any]:
+        """Get the status of an asynchronous geoprocessing job.
+
+        Args:
+            gp_url: The GP service REST endpoint.
+            job_id: The job ID returned by submit_gp_job.
+
+        Returns:
+            Dict with job status, messages, and results (if complete).
+        """
+        url = gp_url.rstrip("/") + f"/jobs/{job_id}?f=json"
+        if self.token:
+            url += f"&token={self.token}"
+
+        try:
+            resp = self._session.get(url, timeout=60)
+            resp.raise_for_status()
+            data = resp.json()
+            if "error" in data:
+                return {"error": data["error"]}
+            return {
+                "job_id": job_id,
+                "job_status": data.get("jobStatus", ""),
+                "messages": data.get("messages", []),
+                "results": data.get("results", {}),
+            }
+        except requests.exceptions.RequestException as e:
+            logger.error("GP job status check failed: %s", e)
+            return {"error": str(e)}
+        except json.JSONDecodeError:
+            return {"error": "Non-JSON response from GP service"}
+
+    # ------------------------------------------------------------------
+    # Portal Admin (Phase 3)
+    # ------------------------------------------------------------------
+
+    def portal_system_info(self) -> dict[str, Any]:
+        """Get portal system/version information (requires admin access)."""
+        result = self.admin_request("")
+        if not result:
+            return {"error": "Could not retrieve portal system info"}
+        if "error" in result:
+            return result
+        return {
+            "status": "ok",
+            "portal_version": result.get("currentVersion", ""),
+            "full_version": result.get("fullVersion", ""),
+            "portal_id": result.get("portalId", ""),
+            "name": result.get("name", ""),
+            "hosting_server_url": result.get("housingServerVersion", ""),
+            "platform": result.get("platform", ""),
+            "auth_mode": result.get("authMode", ""),
+            "available_languages": result.get("availableLanguages", []),
+        }
+
+    def list_licenses(self) -> dict[str, Any]:
+        """Get license information (requires admin access).
+
+        Returns:
+            Dict with license information for the organization.
+        """
+        result = self.admin_request("/license")
+        if not result:
+            return {"error": "Could not retrieve license info"}
+        return result
+
+    def portal_usage(
+        self,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        period: str = "1d",
+        host_type: str = "portal",
+    ) -> dict[str, Any]:
+        """Get portal usage statistics (requires admin access).
+
+        Args:
+            start_time: Start time as epoch ms or ISO string. Defaults to 30 days ago.
+            end_time: End time as epoch ms or ISO string. Defaults to now.
+            period: Aggregation period — 1d, 1w, 1M (1d recommended).
+            host_type: 'portal' or 'server'.
+
+        Returns:
+            Dict with usage statistics.
+        """
+        params: dict[str, Any] = {
+            "period": period,
+            "hostingServerType": host_type,
+        }
+        if start_time:
+            params["startTime"] = start_time
+        if end_time:
+            params["endTime"] = end_time
+
+        result = self.admin_request("/portalusage", params=params)
+        if not result:
+            return {"error": "Could not retrieve usage stats"}
+        return result
+
+    # ------------------------------------------------------------------
+    # Batch Operations (Phase 3)
+    # ------------------------------------------------------------------
+
+    def batch_delete_items(
+        self,
+        item_ids: list[str],
+        owner: str | None = None,
+    ) -> dict[str, Any]:
+        """Delete multiple items at once.
+
+        Args:
+            item_ids: List of item IDs to delete.
+            owner: Owner username. If not provided, looks up each item.
+
+        Returns:
+            Dict with per-item results.
+        """
+        results: dict[str, Any] = {"succeeded": [], "failed": []}
+        for item_id in item_ids:
+            res = self.delete_item(item_id, owner=owner)
+            if res and "error" not in res:
+                results["succeeded"].append(item_id)
+            else:
+                results["failed"].append({
+                    "item_id": item_id,
+                    "error": res.get("error", "Unknown error") if res else "No response",
+                })
+        results["total"] = len(item_ids)
+        results["succeeded_count"] = len(results["succeeded"])
+        results["failed_count"] = len(results["failed"])
+        return results
+
+    def batch_share_items(
+        self,
+        item_ids: list[str],
+        owner: str | None = None,
+        everyone: bool = False,
+        org: bool = False,
+        groups: str | None = None,
+    ) -> dict[str, Any]:
+        """Share or unshare multiple items.
+
+        Args:
+            item_ids: List of item IDs to share.
+            owner: Owner username.
+            everyone: Share with everyone (public).
+            org: Share with the organization.
+            groups: Comma-separated group IDs.
+
+        Returns:
+            Dict with per-item results.
+        """
+        results: dict[str, Any] = {"succeeded": [], "failed": []}
+        for item_id in item_ids:
+            res = self.share_item(
+                item_id, owner=owner, everyone=everyone, org=org, groups=groups,
+            )
+            if res and "error" not in res:
+                results["succeeded"].append(item_id)
+            else:
+                results["failed"].append({
+                    "item_id": item_id,
+                    "error": res.get("error", "Unknown error") if res else "No response",
+                })
+        results["total"] = len(item_ids)
+        results["succeeded_count"] = len(results["succeeded"])
+        results["failed_count"] = len(results["failed"])
+        return results
+
+    def batch_update_items(
+        self,
+        item_ids: list[str],
+        owner: str | None = None,
+        title: str | None = None,
+        description: str | None = None,
+        snippet: str | None = None,
+        tags: str | None = None,
+        access: str | None = None,
+    ) -> dict[str, Any]:
+        """Update properties of multiple items.
+
+        Args:
+            item_ids: List of item IDs to update.
+            owner: Owner username.
+            title: New title (applied to all items).
+            description: New description.
+            snippet: New snippet/summary.
+            tags: New comma-separated tags.
+            access: New access level.
+
+        Returns:
+            Dict with per-item results.
+        """
+        results: dict[str, Any] = {"succeeded": [], "failed": []}
+        for item_id in item_ids:
+            res = self.update_item(
+                item_id, owner=owner, title=title, description=description,
+                snippet=snippet, tags=tags, access=access,
+            )
+            if res and "error" not in res:
+                results["succeeded"].append(item_id)
+            else:
+                results["failed"].append({
+                    "item_id": item_id,
+                    "error": res.get("error", "Unknown error") if res else "No response",
+                })
+        results["total"] = len(item_ids)
+        results["succeeded_count"] = len(results["succeeded"])
+        results["failed_count"] = len(results["failed"])
+        return results
+
+    # ------------------------------------------------------------------
     # Internal methods
     # ------------------------------------------------------------------
 

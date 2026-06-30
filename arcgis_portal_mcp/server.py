@@ -6,6 +6,7 @@ with Claude Desktop, Cursor, VS Code Copilot, and other MCP clients.
 
 Phase 1 (v0.1): Auth, content search, item details, layer queries, user/group listing.
 Phase 2 (v0.2): Feature CRUD, user/group management, content management.
+Phase 3 (v1.0): Service publishing, geoprocessing, portal admin, batch operations.
 """
 
 from __future__ import annotations
@@ -28,8 +29,9 @@ mcp = FastMCP(
     "arcgis-portal-mcp",
     instructions=(
         "Access ArcGIS Portal and Online via AI-friendly tools. "
-        "Search content, query feature layers, list users and groups, "
-        "and check portal health. Supports both Enterprise Portal and "
+        "Search content, query features, manage users and groups, "
+        "publish services, run geoprocessing tasks, and administer "
+        "the portal. Supports both Enterprise Portal and "
         "ArcGIS Online. No dependency on the `arcgis` Python package — "
         "uses raw REST API for maximum compatibility."
     ),
@@ -935,6 +937,445 @@ def get_item_data(item_id: str) -> dict[str, Any]:
 
 
 # =========================================================================
+# Phase 3 — Service Publishing
+# =========================================================================
+
+
+@mcp.tool()
+def upload_item(
+    file_path: str,
+    title: str,
+    type: str,
+    tags: str = "",
+    description: str = "",
+    snippet: str = "",
+    access: str = "private",
+    owner: str = "",
+) -> dict[str, Any]:
+    """Upload a local file to the portal as a new item.
+
+    Supports CSV, Shapefile (zipped), GeoJSON, KML, File Geodatabase,
+    Service Definition, and other GIS file formats. After uploading,
+    use publish_from_item to publish it as a hosted feature service.
+
+    Args:
+        file_path: Local path to the file to upload.
+        title: Item title.
+        type: ArcGIS item type — 'CSV', 'Shapefile', 'GeoJSON', 'KML',
+              'File Geodatabase', 'Service Definition', etc.
+        tags: Comma-separated tags for searchability.
+        description: Longer description.
+        snippet: Short summary (max 250 chars).
+        access: 'private', 'org', or 'public'.
+        owner: Owner username. Defaults to connected user.
+
+    Returns:
+        Item info including the new item ID — use with publish_from_item.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    result = client.upload_file(
+        file_path=file_path,
+        title=title,
+        type_=type,
+        tags=tags,
+        description=description,
+        snippet=snippet,
+        access=access,
+        owner=owner or None,
+    )
+    return {"status": "ok", "result": result}
+
+
+@mcp.tool()
+def publish_from_item(
+    item_id: str,
+    service_type: str = "featureService",
+    publish_parameters: str = "",
+    owner: str = "",
+) -> dict[str, Any]:
+    """Publish an uploaded item as a hosted feature service.
+
+    Use this after upload_item to publish a CSV, Shapefile, or other
+    uploaded file as a live hosted feature layer.
+
+    Args:
+        item_id: The ID of the uploaded item (from upload_item result).
+        service_type: 'featureService' (default) or 'mapService'.
+        publish_parameters: Optional JSON string for advanced config.
+            Example for CSV: '{"layerInfo": {"name": "Parcels", "fields": [...]}}'.
+        owner: Owner username. Defaults to connected user.
+
+    Returns:
+        Publish result with the new service URL and item details.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    pub_params = None
+    if publish_parameters:
+        try:
+            pub_params = json.loads(publish_parameters)
+        except json.JSONDecodeError:
+            return {"status": "error", "error": "publish_parameters must be valid JSON"}
+
+    result = client.publish_from_item(
+        item_id=item_id,
+        service_type=service_type,
+        publish_parameters=pub_params,
+        owner=owner or None,
+    )
+    return {"status": "ok", "result": result}
+
+
+@mcp.tool()
+def create_service(
+    name: str,
+    service_type: str = "Feature Service",
+    description: str = "",
+    snippet: str = "",
+    tags: str = "",
+    access: str = "private",
+    is_view: bool = False,
+    create_parameters: str = "",
+    owner: str = "",
+) -> dict[str, Any]:
+    """Create an empty hosted feature service.
+
+    Creates a new hosted feature service on the portal. Use this when
+    you need to set up a new feature layer with a specific schema before
+    adding features.
+
+    Args:
+        name: Service name.
+        service_type: 'Feature Service' or 'Map Service'.
+        description: Service description.
+        snippet: Short summary.
+        tags: Comma-separated tags.
+        access: 'private', 'org', or 'public'.
+        is_view: If true, creates a hosted feature layer view.
+        create_parameters: Optional JSON string for schema definition.
+            Example: '{"layers": [{"name": "Buildings", "fields":
+            [{"name": "Name", "type": "esriFieldTypeString"}]}]}'
+        owner: Owner username. Defaults to connected user.
+
+    Returns:
+        Created service info including the new service URL.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    create_params = None
+    if create_parameters:
+        try:
+            create_params = json.loads(create_parameters)
+        except json.JSONDecodeError:
+            return {"status": "error", "error": "create_parameters must be valid JSON"}
+
+    result = client.create_service(
+        name=name,
+        service_type=service_type,
+        description=description,
+        snippet=snippet,
+        tags=tags,
+        access=access,
+        is_view=is_view,
+        create_parameters=create_params,
+        owner=owner or None,
+    )
+    return {"status": "ok", "result": result}
+
+
+# =========================================================================
+# Phase 3 — Geoprocessing
+# =========================================================================
+
+
+@mcp.tool()
+def execute_gp_task(
+    gp_service_url: str,
+    params: str = "{}",
+) -> dict[str, Any]:
+    """Execute a synchronous geoprocessing task.
+
+    Submits parameters to a GP service and waits for the result.
+    Use for tasks that complete quickly (under ~5 minutes).
+
+    Args:
+        gp_service_url: The GP task REST endpoint, e.g.
+            'https://server/arcgis/rest/services/MyTool/GPServer/RunAnalysis'.
+        params: JSON string of input parameters.
+            Example: '{"input_feature": {"url": "..."}, "distance": "100"}'
+
+    Returns:
+        Results array, output parameters, and execution messages.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    try:
+        gp_params = json.loads(params) if params else {}
+    except json.JSONDecodeError:
+        return {"status": "error", "error": "params must be valid JSON"}
+
+    result = client.execute_gp_task(gp_service_url, gp_params)
+    return {"status": "ok", "result": result}
+
+
+@mcp.tool()
+def submit_gp_job(
+    gp_service_url: str,
+    params: str = "{}",
+) -> dict[str, Any]:
+    """Submit an asynchronous geoprocessing job.
+
+    For long-running tasks. Returns a job ID you can poll with
+    get_gp_job_status until it completes.
+
+    Args:
+        gp_service_url: The GP task REST endpoint.
+        params: JSON string of input parameters.
+
+    Returns:
+        Job ID and status URL for polling.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    try:
+        gp_params = json.loads(params) if params else {}
+    except json.JSONDecodeError:
+        return {"status": "error", "error": "params must be valid JSON"}
+
+    result = client.submit_gp_job(gp_service_url, gp_params)
+    return {"status": "ok", "result": result}
+
+
+@mcp.tool()
+def get_gp_job_status(
+    gp_service_url: str,
+    job_id: str,
+) -> dict[str, Any]:
+    """Check the status of an asynchronous geoprocessing job.
+
+    Use after submit_gp_job to poll until the job completes.
+    Status values: esriJobSubmitted, esriJobWaiting,
+    esriJobExecuting, esriJobSucceeded, esriJobFailed.
+
+    Args:
+        gp_service_url: The GP service REST endpoint (same as submit_gp_job).
+        job_id: The job ID returned by submit_gp_job.
+
+    Returns:
+        Job status, messages, and results (when complete).
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    result = client.get_gp_job_status(gp_service_url, job_id)
+    return {"status": "ok", "result": result}
+
+
+# =========================================================================
+# Phase 3 — Portal Admin (Enterprise)
+# =========================================================================
+
+
+@mcp.tool()
+def portal_system_info() -> dict[str, Any]:
+    """Get detailed portal system and version information.
+
+    Requires portal admin privileges. Returns the portal version,
+    platform, license type, and system configuration.
+
+    Returns:
+        Portal system info: version, platform, license mode, etc.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    result = client.portal_system_info()
+    return {"status": "ok", "result": result}
+
+
+@mcp.tool()
+def list_licenses() -> dict[str, Any]:
+    """Get portal license information.
+
+    Requires portal admin privileges. Returns license types,
+    expiration dates, and assigned user counts.
+
+    Returns:
+        License details: types, assignments, expiration dates.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    result = client.list_licenses()
+    return {"status": "ok", "result": result}
+
+
+@mcp.tool()
+def portal_usage(
+    start_time: str = "",
+    end_time: str = "",
+    period: str = "1d",
+    host_type: str = "portal",
+) -> dict[str, Any]:
+    """Get portal usage statistics.
+
+    Requires portal admin privileges. Shows active users, API calls,
+    storage usage, and service usage over time.
+
+    Args:
+        start_time: Start time as epoch milliseconds or ISO string.
+                    Defaults to 30 days ago.
+        end_time: End time as epoch milliseconds or ISO string.
+                  Defaults to now.
+        period: Aggregation period — '1d' (daily), '1w' (weekly),
+                '1M' (monthly).
+        host_type: 'portal' or 'server'.
+
+    Returns:
+        Usage metrics with timestamps and values.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    result = client.portal_usage(
+        start_time=start_time or None,
+        end_time=end_time or None,
+        period=period,
+        host_type=host_type,
+    )
+    return {"status": "ok", "result": result}
+
+
+# =========================================================================
+# Phase 3 — Batch Operations
+# =========================================================================
+
+
+@mcp.tool()
+def batch_delete_items(
+    item_ids: str,
+    owner: str = "",
+) -> dict[str, Any]:
+    """Delete multiple items at once.
+
+    More efficient than calling delete_item repeatedly.
+    Returns per-item success/failure results.
+
+    Args:
+        item_ids: Comma-separated item IDs to delete.
+        owner: Owner username. Defaults to connected user.
+
+    Returns:
+        Per-item results with succeeded and failed counts.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    ids = [i.strip() for i in item_ids.split(",") if i.strip()]
+    if not ids:
+        return {"status": "error", "error": "No item IDs provided"}
+
+    result = client.batch_delete_items(ids, owner=owner or None)
+    return {"status": "ok", "result": result}
+
+
+@mcp.tool()
+def batch_share_items(
+    item_ids: str,
+    everyone: bool = False,
+    org: bool = False,
+    groups: str = "",
+    owner: str = "",
+) -> dict[str, Any]:
+    """Share or unshare multiple items at once.
+
+    Applies the same sharing settings to all specified items.
+    More efficient than calling share_item repeatedly.
+
+    Args:
+        item_ids: Comma-separated item IDs to share.
+        everyone: If true, share publicly.
+        org: If true, share with the organization.
+        groups: Comma-separated group IDs.
+        owner: Owner username. Defaults to connected user.
+
+    Returns:
+        Per-item results with succeeded and failed counts.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    ids = [i.strip() for i in item_ids.split(",") if i.strip()]
+    if not ids:
+        return {"status": "error", "error": "No item IDs provided"}
+
+    result = client.batch_share_items(
+        ids, owner=owner or None, everyone=everyone, org=org, groups=groups or None,
+    )
+    return {"status": "ok", "result": result}
+
+
+@mcp.tool()
+def batch_update_items(
+    item_ids: str,
+    title: str = "",
+    description: str = "",
+    snippet: str = "",
+    tags: str = "",
+    access: str = "",
+    owner: str = "",
+) -> dict[str, Any]:
+    """Update properties of multiple items at once.
+
+    Applies the same property changes to all specified items.
+    Only non-empty parameters are applied.
+
+    Args:
+        item_ids: Comma-separated item IDs to update.
+        title: New title for all items.
+        description: New description.
+        snippet: New summary.
+        tags: New comma-separated tags (replaces existing).
+        access: New access level — 'private', 'org', or 'public'.
+        owner: Owner username. Defaults to connected user.
+
+    Returns:
+        Per-item results with succeeded and failed counts.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    ids = [i.strip() for i in item_ids.split(",") if i.strip()]
+    if not ids:
+        return {"status": "error", "error": "No item IDs provided"}
+
+    result = client.batch_update_items(
+        ids, owner=owner or None,
+        title=title or None, description=description or None,
+        snippet=snippet or None, tags=tags or None, access=access or None,
+    )
+    return {"status": "ok", "result": result}
+
+
+# =========================================================================
 # Resources
 # =========================================================================
 
@@ -986,6 +1427,21 @@ def arcgis_rest_guide() -> str:
 - Enterprise Portal: https://{hostname}/{webadaptor}/home/
 - Sharing API: https://{hostname}/{webadaptor}/sharing/rest/
 - Admin API: https://{hostname}/{webadaptor}/portaladmin/
+
+## Service Publishing
+- `/content/users/{owner}/add` — Upload a file (POST, multipart)
+- `/content/users/{owner}/publish` — Publish item as feature service (POST)
+- `/content/users/{owner}/createService` — Create hosted feature service (POST)
+
+## Geoprocessing
+- `{gp_service_url}/execute` — Synchronous GP task (POST)
+- `{gp_service_url}/submitJob` — Async GP job submission (POST)
+- `{gp_service_url}/jobs/{jobId}` — Check async job status (GET)
+
+## Portal Admin (Enterprise only)
+- `/portaladmin/` — System info (GET)
+- `/portaladmin/license` — License information (GET)
+- `/portaladmin/portalusage` — Usage statistics (GET)
 """
 
 

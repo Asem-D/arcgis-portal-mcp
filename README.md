@@ -15,6 +15,10 @@ Built on the [Model Context Protocol](https://modelcontextprotocol.io) for integ
 - **Manage content** — update item properties, share/unshare, delete items, read web map definitions
 - **Manage users** — list users, get detailed user profiles
 - **Manage groups** — list groups, create groups, invite users
+- **Publish services** — upload files and publish as hosted feature services
+- **Run geoprocessing** — execute synchronous and asynchronous GP tasks
+- **Portal admin** — system info, license management, usage statistics
+- **Batch operations** — bulk delete, share, and update multiple items
 - **Health check** portal system status (requires admin privileges)
 
 ## Design Principles
@@ -151,6 +155,34 @@ User: What basemap and layers are in this web map?
 Agent: [calls get_item_data to read the web map JSON, summarizes basemap and operational layers]
 ```
 
+### Publish a Shapefile
+
+```
+User: Publish this shapefile as a hosted feature service
+Agent: [calls upload_item to upload the .zip, then publish_from_item to create the service]
+```
+
+### Run a Geoprocessing Task
+
+```
+User: Run the buffer analysis on the parcels layer with a 100m distance
+Agent: [calls execute_gp_task with the GP service URL and input parameters]
+```
+
+### Bulk Operations
+
+```
+User: Delete all my draft items
+Agent: [calls search_content to find items, then batch_delete_items to remove them]
+```
+
+### Portal Administration
+
+```
+User: How many licenses do we have left?
+Agent: [calls list_licenses to show license allocation and usage]
+```
+
 ## Available Tools
 
 ### Phase 1 — Read-only (v0.1)
@@ -181,6 +213,23 @@ Agent: [calls get_item_data to read the web map JSON, summarizes basemap and ope
 | `delete_item` | Delete an item from the portal |
 | `share_item` | Share/unshare an item with everyone, org, or specific groups |
 | `get_item_data` | Read item data (web map JSON, app config, feature collections) |
+
+### Phase 3 — Publishing, Geoprocessing, Admin & Batch (v1.0)
+
+| Tool | Description |
+|------|-------------|
+| `upload_item` | Upload a local file (CSV, Shapefile, etc.) to portal content |
+| `publish_from_item` | Publish an uploaded item as a hosted feature service |
+| `create_service` | Create an empty hosted feature service with schema |
+| `execute_gp_task` | Run a synchronous geoprocessing task |
+| `submit_gp_job` | Submit an async GP job and get a job ID for polling |
+| `get_gp_job_status` | Check status of a running async geoprocessing job |
+| `portal_system_info` | Get portal version, platform, and system info (admin) |
+| `list_licenses` | Get license information and assignments (admin) |
+| `portal_usage` | Get portal usage statistics — users, API calls, storage (admin) |
+| `batch_delete_items` | Delete multiple items at once |
+| `batch_share_items` | Share/unshare multiple items with the same audiences |
+| `batch_update_items` | Update properties of multiple items at once |
 
 ## Authentication Methods
 
