@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "arcgis-portal-mcp"
+version = "0.1.0"
+description = "MCP server for ArcGIS Portal and Online — lets AI assistants search content, query features, manage users, and administer ArcGIS deployments"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Asem Daaboul", email = "asem.daaboul@gmail.com" },
+]
+keywords = [
+    "mcp",
+    "arcgis",
+    "gis",
+    "portal",
+    "enterprise",
+    "feature-service",
+    "spatial",
+    "ai",
+    "llm",
+    "agent",
+    "model-context-protocol",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: GIS",
+    "Topic :: Database",
+]
+dependencies = [
+    "mcp>=1.0.0",
+    "requests>=2.28.0",
+    "pywin32>=306; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.1.0",
+]
+
+# [project.scripts] — entry point defined in __main__.py for now
+
+[project.urls]
+Homepage = "https://github.com/Asem-D/arcgis-portal-mcp"
+Repository = "https://github.com/Asem-D/arcgis-portal-mcp"
+Issues = "https://github.com/Asem-D/arcgis-portal-mcp/issues"
+
+[tool.setuptools.packages.find]
+include = ["arcgis_portal_mcp*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
