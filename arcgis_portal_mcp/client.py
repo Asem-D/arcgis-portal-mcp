@@ -479,6 +479,353 @@ class ArcGISClient:
 
         return groups[:max_groups]
 
+    # ------------------------------------------------------------------
+    # Feature Service Operations (Phase 2)
+    # ------------------------------------------------------------------
+
+    def add_features(
+        self,
+        service_url: str,
+        layer_id: int,
+        features: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Add features to a hosted feature layer.
+
+        Args:
+            service_url: Feature service URL (e.g. https://host/arcgis/rest/services/svc/FeatureServer)
+            layer_id: Layer ID (e.g. 0)
+            features: List of feature dicts with 'attributes' and optionally 'geometry'
+
+        Returns:
+            Dict with addResults array.
+        """
+        url = f"{service_url.rstrip('/')}/{layer_id}/addFeatures"
+        data = {
+            "features": json.dumps(features),
+            "f": "json",
+        }
+        t = self.token
+        if t:
+            data["token"] = t
+        try:
+            resp = self._session.post(url, data=data, timeout=60)
+            resp.raise_for_status()
+            result = resp.json()
+            if "error" in result:
+                return {"error": result["error"]}
+            return result
+        except requests.exceptions.RequestException as e:
+            return {"error": str(e)}
+
+    def update_features(
+        self,
+        service_url: str,
+        layer_id: int,
+        features: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Update features in a hosted feature layer.
+
+        Args:
+            service_url: Feature service URL
+            layer_id: Layer ID
+            features: List of feature dicts with 'attributes' (must include OBJECTID)
+
+        Returns:
+            Dict with updateResults array.
+        """
+        url = f"{service_url.rstrip('/')}/{layer_id}/updateFeatures"
+        data = {
+            "features": json.dumps(features),
+            "f": "json",
+        }
+        t = self.token
+        if t:
+            data["token"] = t
+        try:
+            resp = self._session.post(url, data=data, timeout=60)
+            resp.raise_for_status()
+            result = resp.json()
+            if "error" in result:
+                return {"error": result["error"]}
+            return result
+        except requests.exceptions.RequestException as e:
+            return {"error": str(e)}
+
+    def delete_features(
+        self,
+        service_url: str,
+        layer_id: int,
+        object_ids: str | None = None,
+        where_clause: str | None = None,
+    ) -> dict[str, Any]:
+        """Delete features from a hosted feature layer.
+
+        Args:
+            service_url: Feature service URL
+            layer_id: Layer ID
+            object_ids: Comma-separated OBJECTID values (e.g. "1,2,3")
+            where_clause: SQL WHERE clause (e.g. "STATUS = 'Inactive'")
+
+        Returns:
+            Dict with deleteResults array.
+        """
+        url = f"{service_url.rstrip('/')}/{layer_id}/deleteFeatures"
+        data: dict[str, Any] = {"f": "json"}
+        if object_ids:
+            data["objectIds"] = object_ids
+        elif where_clause:
+            data["where"] = where_clause
+        else:
+            return {"error": "Either objectIds or where clause is required"}
+        t = self.token
+        if t:
+            data["token"] = t
+        try:
+            resp = self._session.post(url, data=data, timeout=60)
+            resp.raise_for_status()
+            result = resp.json()
+            if "error" in result:
+                return {"error": result["error"]}
+            return result
+        except requests.exceptions.RequestException as e:
+            return {"error": str(e)}
+
+    # ------------------------------------------------------------------
+    # Content Management (Phase 2)
+    # ------------------------------------------------------------------
+
+    def update_item(
+        self,
+        item_id: str,
+        title: str | None = None,
+        description: str | None = None,
+        snippet: str | None = None,
+        tags: str | None = None,
+        access: str | None = None,
+    ) -> dict[str, Any]:
+        """Update item properties on the portal.
+
+        Args:
+            item_id: The item ID to update
+            title: New title
+            description: New description
+            snippet: New snippet/summary
+            tags: Comma-separated tags
+            access: New access level (private, org, public)
+
+        Returns:
+            Dict with success status.
+        """
+        # First get the item to find the owner
+        item_info = self.get_item_details(item_id)
+        if not item_info or "error" in item_info:
+            return {"error": f"Could not retrieve item {item_id}"}
+        owner = item_info.get("owner", "")
+
+        data: dict[str, Any] = {}
+        if title is not None:
+            data["title"] = title
+        if description is not None:
+            data["description"] = description
+        if snippet is not None:
+            data["snippet"] = snippet
+        if tags is not None:
+            data["tags"] = tags
+        if access is not None:
+            data["access"] = access
+
+        if not data:
+            return {"error": "No properties to update"}
+
+        result = self._sharing_request(
+            f"/content/users/{owner}/items/{item_id}/update",
+            params=data,
+            method="POST",
+        )
+        return result or {"error": "Update failed"}
+
+    def delete_item(self, item_id: str, owner: str | None = None) -> dict[str, Any]:
+        """Delete an item from the portal.
+
+        Args:
+            item_id: The item ID to delete
+            owner: Item owner username. If not provided, looks it up.
+
+        Returns:
+            Dict with success status.
+        """
+        if not owner:
+            item_info = self.get_item_details(item_id)
+            if not item_info or "error" in item_info:
+                return {"error": f"Could not retrieve item {item_id}"}
+            owner = item_info.get("owner", "")
+
+        result = self._sharing_request(
+            f"/content/users/{owner}/items/{item_id}/delete",
+            params={"f": "json"},
+            method="POST",
+        )
+        return result or {"error": "Delete failed"}
+
+    def share_item(
+        self,
+        item_id: str,
+        owner: str | None = None,
+        everyone: bool = False,
+        org: bool = False,
+        groups: str | None = None,
+    ) -> dict[str, Any]:
+        """Share or unshare an item.
+
+        Args:
+            item_id: The item ID to share
+            owner: Item owner username
+            everyone: Share with everyone (public)
+            org: Share with the organization
+            groups: Comma-separated group IDs to share with
+
+        Returns:
+            Dict with sharing results.
+        """
+        if not owner:
+            item_info = self.get_item_details(item_id)
+            if not item_info or "error" in item_info:
+                return {"error": f"Could not retrieve item {item_id}"}
+            owner = item_info.get("owner", "")
+
+        data: dict[str, Any] = {
+            "everyone": str(everyone).lower(),
+            "org": str(org).lower(),
+        }
+        if groups:
+            data["groups"] = groups
+
+        result = self._sharing_request(
+            f"/content/users/{owner}/items/{item_id}/share",
+            params=data,
+            method="POST",
+        )
+        return result or {"error": "Share operation failed"}
+
+    def get_item_data(self, item_id: str) -> dict[str, Any]:
+        """Get the data/content of an item (web map JSON, etc.).
+
+        Args:
+            item_id: The item ID
+
+        Returns:
+            Dict with the item data (e.g., web map JSON, feature collection).
+        """
+        result = self._sharing_request(f"/content/items/{item_id}/data")
+        return result or {"error": "Could not retrieve item data"}
+
+    # ------------------------------------------------------------------
+    # User/Group Management (Phase 2)
+    # ------------------------------------------------------------------
+
+    def create_group(
+        self,
+        title: str,
+        name: str | None = None,
+        description: str = "",
+        access: str = "private",
+        is_invitation_only: bool = False,
+    ) -> dict[str, Any]:
+        """Create a new group.
+
+        Args:
+            title: Group title (required)
+            name: Group name (URL-friendly). Defaults to title.
+            description: Group description
+            access: Access level — private, org, public
+            is_invitation_only: If True, users must be invited to join
+
+        Returns:
+            Dict with group creation result.
+        """
+        data: dict[str, Any] = {
+            "title": title,
+            "description": description,
+            "access": access,
+            "isInvitationOnly": str(is_invitation_only).lower(),
+        }
+        if name:
+            data["name"] = name
+
+        result = self._sharing_request(
+            "/community/createGroup",
+            params=data,
+            method="POST",
+        )
+        return result or {"error": "Group creation failed"}
+
+    def invite_to_group(
+        self,
+        group_id: str,
+        users: str,
+        role: str = "member",
+        message: str = "",
+    ) -> dict[str, Any]:
+        """Invite users to a group.
+
+        Args:
+            group_id: The group ID
+            users: Comma-separated usernames to invite
+            role: Role for invited users — member or admin
+            message: Invitation message
+
+        Returns:
+            Dict with invitation results.
+        """
+        data: dict[str, Any] = {
+            "users": users,
+            "role": role,
+        }
+        if message:
+            data["message"] = message
+
+        result = self._sharing_request(
+            f"/community/groups/{group_id}/invite",
+            params=data,
+            method="POST",
+        )
+        return result or {"error": "Invitation failed"}
+
+    def get_user_details(self, username: str) -> dict[str, Any]:
+        """Get detailed information about a specific user.
+
+        Args:
+            username: The username to look up
+
+        Returns:
+            Dict with user details including role, privileges, storage, etc.
+        """
+        result = self._sharing_request(f"/community/users/{username}")
+        if not result:
+            return {"error": "User not found"}
+        if "error" in result:
+            return result
+
+        # Return a clean subset of user info
+        return {
+            "status": "ok",
+            "username": result.get("username", ""),
+            "fullname": result.get("fullName", ""),
+            "email": result.get("email", ""),
+            "role": result.get("role", ""),
+            "role_id": result.get("roleId", ""),
+            "privileges": result.get("privileges", []),
+            "org_id": result.get("orgId", ""),
+            "org_name": result.get("orgName", ""),
+            "last_login": _epoch_to_str(result.get("lastLogin")),
+            "storage_usage": result.get("storageUsage", 0),
+            "storage_quota": result.get("storageQuota", 0),
+            "created": _epoch_to_str(result.get("created")),
+            "access": result.get("access", ""),
+            "mfa_enabled": result.get("mfaEnabled", False),
+            "disabled": result.get("disabled", False),
+        }
+
     def health_check(self) -> dict[str, Any]:
         """Perform portal health check (requires admin privileges)."""
         return self.admin_request("/healthCheck") or {"error": "Health check failed"}

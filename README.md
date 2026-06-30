@@ -1,6 +1,6 @@
 # arcgis-portal-mcp
 
-MCP server for ArcGIS Portal and Online — lets AI assistants search content, query feature layers, list users and groups, and check portal health.
+MCP server for ArcGIS Portal and Online — lets AI assistants search content, query feature layers, manage features, handle content operations, and administer users and groups.
 
 Built on the [Model Context Protocol](https://modelcontextprotocol.io) for integration with Claude Desktop, Cursor, VS Code Copilot, and other MCP clients.
 
@@ -11,8 +11,10 @@ Built on the [Model Context Protocol](https://modelcontextprotocol.io) for integ
 - **Inspect** item metadata, tags, and descriptions
 - **List layers** in a feature service with geometry types and counts
 - **Query features** with attribute filters, spatial filters, field selection, and pagination
-- **List users** with roles, status, and last login
-- **List groups** with access levels and member counts
+- **Add, update, and delete features** in hosted feature layers
+- **Manage content** — update item properties, share/unshare, delete items, read web map definitions
+- **Manage users** — list users, get detailed user profiles
+- **Manage groups** — list groups, create groups, invite users
 - **Health check** portal system status (requires admin privileges)
 
 ## Design Principles
@@ -128,7 +130,30 @@ User: Who are the administrators in our portal?
 Agent: [calls list_users, filters by role]
 ```
 
+### Add Features
+
+```
+User: Add these 3 buildings to the infrastructure layer
+Agent: [calls add_features with the feature service URL and JSON features]
+```
+
+### Share a Web Map
+
+```
+User: Share item abc123 with the "Planning Team" group and the whole org
+Agent: [calls share_item with org=true and groups=<planning-team-id>]
+```
+
+### Read a Web Map
+
+```
+User: What basemap and layers are in this web map?
+Agent: [calls get_item_data to read the web map JSON, summarizes basemap and operational layers]
+```
+
 ## Available Tools
+
+### Phase 1 — Read-only (v0.1)
 
 | Tool | Description |
 |------|-------------|
@@ -141,6 +166,21 @@ Agent: [calls list_users, filters by role]
 | `list_groups` | List portal groups with access levels |
 | `portal_health` | Check portal health and system status |
 | `server_status` | Check MCP server connection state |
+
+### Phase 2 — Feature CRUD, User/Group & Content Management (v0.2)
+
+| Tool | Description |
+|------|-------------|
+| `add_features` | Add new features to a hosted feature layer |
+| `update_features` | Update existing features (by OBJECTID) |
+| `delete_features` | Delete features by OBJECTIDs or WHERE clause |
+| `get_user_details` | Get detailed user profile (role, privileges, storage, last login) |
+| `create_group` | Create a new group with access control |
+| `invite_to_group` | Invite users to a group with a role assignment |
+| `update_item` | Update item properties (title, description, tags, access) |
+| `delete_item` | Delete an item from the portal |
+| `share_item` | Share/unshare an item with everyone, org, or specific groups |
+| `get_item_data` | Read item data (web map JSON, app config, feature collections) |
 
 ## Authentication Methods
 

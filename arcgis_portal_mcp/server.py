@@ -4,7 +4,8 @@ An MCP server that gives AI assistants access to ArcGIS Portal and Online
 via structured tools. Built on the Model Context Protocol for integration
 with Claude Desktop, Cursor, VS Code Copilot, and other MCP clients.
 
-Phase 1: Auth, content search, item details, layer queries, user/group listing.
+Phase 1 (v0.1): Auth, content search, item details, layer queries, user/group listing.
+Phase 2 (v0.2): Feature CRUD, user/group management, content management.
 """
 
 from __future__ import annotations
@@ -629,6 +630,311 @@ def server_status() -> dict[str, Any]:
 
 
 # =========================================================================
+# Phase 2 — Feature CRUD
+# =========================================================================
+
+
+@mcp.tool()
+def add_features(
+    service_url: str,
+    layer_id: int,
+    features: str,
+) -> dict[str, Any]:
+    """Add new features to a hosted feature layer.
+
+    Args:
+        service_url: Feature service URL (e.g. "https://host/arcgis/rest/services/MyService/FeatureServer")
+        layer_id: Layer ID within the feature service (e.g. 0)
+        features: JSON array of features to add. Each feature is a dict with
+                  "attributes" (required) and "geometry" (optional).
+                  Example: [{"attributes": {"NAME": "Building A", "STATUS": "Active"},
+                             "geometry": {"x": 35.5, "y": 33.9, "spatialReference": {"wkid": 4326}}}]
+
+    Returns:
+        addResults array with success/failure per feature.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    import json as _json
+    try:
+        feat_list = _json.loads(features) if isinstance(features, str) else features
+    except _json.JSONDecodeError as e:
+        return {"status": "error", "error": f"Invalid JSON in features: {e}"}
+
+    result = client.add_features(service_url, layer_id, feat_list)
+    return {"status": "ok", "result": result}
+
+
+@mcp.tool()
+def update_features(
+    service_url: str,
+    layer_id: int,
+    features: str,
+) -> dict[str, Any]:
+    """Update existing features in a hosted feature layer.
+
+    Args:
+        service_url: Feature service URL
+        layer_id: Layer ID
+        features: JSON array of features to update. Each must include OBJECTID in attributes.
+                  Example: [{"attributes": {"OBJECTID": 1, "NAME": "Updated Name"}}]
+
+    Returns:
+        updateResults array with success/failure per feature.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    import json as _json
+    try:
+        feat_list = _json.loads(features) if isinstance(features, str) else features
+    except _json.JSONDecodeError as e:
+        return {"status": "error", "error": f"Invalid JSON in features: {e}"}
+
+    result = client.update_features(service_url, layer_id, feat_list)
+    return {"status": "ok", "result": result}
+
+
+@mcp.tool()
+def delete_features(
+    service_url: str,
+    layer_id: int,
+    object_ids: str = "",
+    where_clause: str = "",
+) -> dict[str, Any]:
+    """Delete features from a hosted feature layer by OBJECTIDs or WHERE clause.
+
+    Args:
+        service_url: Feature service URL
+        layer_id: Layer ID
+        object_ids: Comma-separated OBJECTID values to delete (e.g. "1,2,3"). Provide either this or where_clause.
+        where_clause: SQL WHERE clause to match features for deletion (e.g. "STATUS = 'Inactive'").
+
+    Returns:
+        deleteResults array.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    if not object_ids and not where_clause:
+        return {"status": "error", "error": "Provide either object_ids or where_clause"}
+
+    result = client.delete_features(
+        service_url, layer_id,
+        object_ids=object_ids or None,
+        where_clause=where_clause or None,
+    )
+    return {"status": "ok", "result": result}
+
+
+# =========================================================================
+# Phase 2 — User / Group Management
+# =========================================================================
+
+
+@mcp.tool()
+def get_user_details(username: str) -> dict[str, Any]:
+    """Get detailed information about a specific user.
+
+    Args:
+        username: The portal username to look up.
+
+    Returns:
+        User details: role, privileges, storage usage, last login, etc.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    result = client.get_user_details(username)
+    return {"status": "ok", "user": result}
+
+
+@mcp.tool()
+def create_group(
+    title: str,
+    name: str = "",
+    description: str = "",
+    access: str = "private",
+    is_invitation_only: bool = False,
+) -> dict[str, Any]:
+    """Create a new group on the portal.
+
+    Args:
+        title: Display name for the group.
+        name: URL-friendly group name. Defaults to title if not set.
+        description: Group description.
+        access: Visibility — "private" (group members only), "org" (organization), or "public".
+        is_invitation_only: If true, users must be invited to join.
+
+    Returns:
+        Group creation result with the new group ID.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    result = client.create_group(
+        title=title,
+        name=name or None,
+        description=description,
+        access=access,
+        is_invitation_only=is_invitation_only,
+    )
+    return {"status": "ok", "result": result}
+
+
+@mcp.tool()
+def invite_to_group(
+    group_id: str,
+    users: str,
+    role: str = "member",
+    message: str = "",
+) -> dict[str, Any]:
+    """Invite users to a group.
+
+    Args:
+        group_id: The group ID to invite users to.
+        users: Comma-separated usernames to invite (e.g. "jsmith,mgarcia").
+        role: Role assigned to invited users — "member" (default) or "admin".
+        message: Optional invitation message.
+
+    Returns:
+        Invitation results per user.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    result = client.invite_to_group(
+        group_id=group_id,
+        users=users,
+        role=role,
+        message=message,
+    )
+    return {"status": "ok", "result": result}
+
+
+# =========================================================================
+# Phase 2 — Content Management
+# =========================================================================
+
+
+@mcp.tool()
+def update_item(
+    item_id: str,
+    title: str = "",
+    description: str = "",
+    snippet: str = "",
+    tags: str = "",
+    access: str = "",
+) -> dict[str, Any]:
+    """Update properties of an existing portal item.
+
+    Only the fields you provide will be changed. Leave others empty to skip.
+
+    Args:
+        item_id: The item ID to update.
+        title: New title.
+        description: New description.
+        snippet: New summary/snippet.
+        tags: Comma-separated tags to set (replaces existing tags).
+        access: New access level — "private", "org", or "public".
+
+    Returns:
+        Update result.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    result = client.update_item(
+        item_id=item_id,
+        title=title or None,
+        description=description or None,
+        snippet=snippet or None,
+        tags=tags or None,
+        access=access or None,
+    )
+    return {"status": "ok", "result": result}
+
+
+@mcp.tool()
+def delete_item(item_id: str) -> dict[str, Any]:
+    """Delete an item from the portal.
+
+    Args:
+        item_id: The item ID to delete. The item owner must match the connected user
+                 or the user must have admin delete privileges.
+
+    Returns:
+        Delete result.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    result = client.delete_item(item_id)
+    return {"status": "ok", "result": result}
+
+
+@mcp.tool()
+def share_item(
+    item_id: str,
+    everyone: bool = False,
+    org: bool = False,
+    groups: str = "",
+) -> dict[str, Any]:
+    """Share or unshare an item with audiences.
+
+    Args:
+        item_id: The item ID to share.
+        everyone: If true, share publicly with everyone.
+        org: If true, share with the entire organization.
+        groups: Comma-separated group IDs to share with (e.g. "abc123,def456").
+
+    Returns:
+        Sharing result including which groups the item was/wasn't shared with.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    result = client.share_item(
+        item_id=item_id,
+        everyone=everyone,
+        org=org,
+        groups=groups or None,
+    )
+    return {"status": "ok", "result": result}
+
+
+@mcp.tool()
+def get_item_data(item_id: str) -> dict[str, Any]:
+    """Get the data/content of a portal item.
+
+    Useful for reading web map definitions, web app configurations, feature
+    collection data, and other item data payloads.
+
+    Args:
+        item_id: The item ID.
+
+    Returns:
+        The item data as JSON (e.g. web map definition with basemap, layers, etc.).
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    result = client.get_item_data(item_id)
+    return {"status": "ok", "data": result}
+
+
+# =========================================================================
 # Resources
 # =========================================================================
 
@@ -647,22 +953,24 @@ def arcgis_rest_guide() -> str:
 - `/sharing/rest/search` — Search items (GET, params: q, start, num)
 - `/sharing/rest/content/items/{id}` — Get item details
 - `/sharing/rest/content/items/{id}/data` — Get item data (web map JSON, etc.)
+- `/sharing/rest/content/users/{owner}/items/{id}/update` — Update item properties (POST)
+- `/sharing/rest/content/users/{owner}/items/{id}/delete` — Delete item (POST)
+- `/sharing/rest/content/users/{owner}/items/{id}/share` — Share/unshare item (POST)
 - `/sharing/rest/portals/self` — Organization info
 - `/sharing/rest/portals/self/users` — List users
 - `/sharing/rest/portals/self/groups` — List groups
 - `/sharing/rest/community/self` — Current user info
+- `/sharing/rest/community/users/{username}` — User details
+- `/sharing/rest/community/createGroup` — Create group (POST)
+- `/sharing/rest/community/groups/{id}/invite` — Invite users to group (POST)
 
-## Feature Service Query
+## Feature Service Operations
 - `{service_url}/{layerId}/query` — Query features
-  - where: SQL WHERE clause (e.g. "1=1", "STATUS = 'Active'")
-  - outFields: Comma-separated fields or "*"
-  - returnGeometry: true/false
-  - outSR: Spatial reference for output (4326 = WGS84)
-  - resultOffset: Pagination offset
-  - resultRecordCount: Max records (up to 2000 per request)
-  - geometry: Bounding box or geometry for spatial filter
-  - geometryType: esriGeometryEnvelope, esriGeometryPoint, etc.
-  - spatialRel: esriSpatialRelIntersects, esriSpatialRelContains, etc.
+  - where, outFields, returnGeometry, outSR, resultOffset, resultRecordCount
+  - geometry, geometryType, spatialRel for spatial filtering
+- `{service_url}/{layerId}/addFeatures` — Add features (POST, features=[…])
+- `{service_url}/{layerId}/updateFeatures` — Update features (POST, features=[…])
+- `{service_url}/{layerId}/deleteFeatures` — Delete features (POST, objectIds or where)
 
 ## Common Item Types
 - Feature Service, Map Service, Image Service, Scene Service
