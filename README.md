@@ -27,7 +27,7 @@ Built on the [Model Context Protocol](https://modelcontextprotocol.io) for integ
 
 - **No `arcgis` Python package dependency**: uses raw REST API calls via `requests` for maximum compatibility (the `arcgis` package has installation issues on Windows)
 - **Works with Enterprise Portal AND ArcGIS Online**: same tools, same API
-- **Token-first auth**: supports existing tokens for zero-friction MCP integration
+- **Token-first auth**: supports existing tokens, username/password, and OAuth2 for full flexibility
 - **Auto-connect**: reads `.env` file on startup, no manual auth needed per session
 - **2FA-friendly**: works with Enterprise portals that require two-factor authentication (client_credentials, no browser)
 - **Self-signed cert friendly**: handles Enterprise portals with self-signed certificates
@@ -58,11 +58,15 @@ cp .env.example .env
 
 ```env
 portal_url=https://gis.example.com/portal
-oauth_client_id=your-oauth-app-client-id
-oauth_client_secret=your-oauth-app-client-secret
+# Option 1: Username/password (recommended for most users)
+username=your-portal-username
+password=your-portal-password
+# Option 2: OAuth2 app credentials (app-level, limited permissions)
+# oauth_client_id=your-oauth-app-client-id
+# oauth_client_secret=your-oauth-app-client-secret
 ```
 
-The server reads these on startup and connects via `client_credentials` automatically. No manual `connect_portal` call needed.
+The server reads these on startup and connects automatically. If `username` + `password` are provided, it uses `generateToken` (user-level, full permissions). Otherwise, it falls back to `client_credentials` (app-level, limited). No manual `connect_portal` call needed.
 
 > **Note:** The `.env` file is gitignored. Never commit credentials. `.env.example` is safe to commit.
 
@@ -94,8 +98,8 @@ Alternatively, pass credentials via MCP client env vars:
       "args": ["-m", "arcgis_portal_mcp.server"],
       "env": {
         "portal_url": "https://gis.example.com/portal",
-        "oauth_client_id": "your-client-id",
-        "oauth_client_secret": "your-client-secret"
+        "username": "your-portal-username",
+        "password": "your-portal-password"
       }
     }
   }
@@ -108,7 +112,8 @@ The `connect_portal` tool accepts these `auth_method` values:
 
 | Value | Behavior |
 |-------|----------|
-| `auto` | Read from `.env` (default) |
+| `auto` | Read from `.env` (default) — tries username/password first, then client_credentials |
+| `username_password` | Portal username + password -> generateToken (user-level) |
 | `token` | Use explicit portal token |
 | `client_credentials` | Use explicit client_id/secret |
 | `oauth2` | Browser-based OAuth2 (blocks ~2 min) |

@@ -248,6 +248,60 @@ class ArcGISClient:
             "grant_type": "authorization_code",
         }
 
+    def connect_username_password(
+        self, portal_url: str, username: str, password: str
+    ) -> dict[str, Any]:
+        """Connect using username + password via generateToken.
+
+        Gets a user-level token with full permissions. Token expires in
+        2 hours by default (matching Enterprise Portal default).
+
+        Args:
+            portal_url: Base URL of the Portal
+            username: ArcGIS Portal username
+            password: ArcGIS Portal password
+
+        Returns:
+            Dict with token info and user details.
+        """
+        self._set_portal_url(portal_url)
+        token_url = f"{self.sharing_url}/generateToken"
+
+        data = {
+            "username": username,
+            "password": password,
+            "expiration": 120,  # minutes (2 hours)
+            "f": "json",
+        }
+
+        resp = self._session.post(token_url, data=data, timeout=30)
+        result = resp.json()
+
+        if "error" in result:
+            error_msg = result.get("error", {}).get("description", str(result["error"]))
+            raise ConnectionError(f"generateToken failed: {error_msg}")
+
+        token = result["token"]
+        expires_in = result.get("expires", 7200)  # seconds
+        expires_at = datetime.now().timestamp() + expires_in
+
+        self._token = token
+        self._token_expires = expires_at
+        self._username = username
+        self._user_info = {"username": username}
+
+        logger.info(
+            "Connected as %s via generateToken (expires in %ds)",
+            username,
+            expires_in,
+        )
+        return {
+            "token": token,
+            "username": username,
+            "expires_in": expires_in,
+            "grant_type": "generateToken",
+        }
+
     # ------------------------------------------------------------------
     # Sharing REST API
     # ------------------------------------------------------------------

@@ -5,7 +5,7 @@ from arcgis_portal_mcp.client import ArcGISClient
 
 
 def test_version():
-    assert __version__ == "1.0.0"
+    assert __version__ == "1.1.0"
 
 
 def test_client_init():

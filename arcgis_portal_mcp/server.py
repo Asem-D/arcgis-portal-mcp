@@ -95,36 +95,57 @@ def _load_env() -> dict[str, str]:
 def _auto_connect() -> bool:
     """Auto-connect using credentials from .env file.
 
-    Reads portal_url, oauth_client_id, oauth_client_secret from .env
-    and connects via client_credentials grant.
+    Tries in order:
+    1. username + password -> generateToken (user-level, full permissions)
+    2. client_id + client_secret -> client_credentials (app-level, limited)
 
     Returns True if connection succeeded, False otherwise.
     """
     env = _load_env()
 
     portal_url = env.get("portal_url") or os.environ.get("PORTAL_URL")
+    username = env.get("username") or os.environ.get("ARCGIS_USERNAME")
+    password = env.get("password") or os.environ.get("ARCGIS_PASSWORD")
     client_id = env.get("oauth_client_id") or os.environ.get("OAUTH_CLIENT_ID")
     client_secret = env.get("oauth_client_secret") or os.environ.get("OAUTH_CLIENT_SECRET")
 
-    if not all([portal_url, client_id, client_secret]):
-        logger.info(
-            "Auto-connect skipped: missing credentials in .env "
-            "(need portal_url, oauth_client_id, oauth_client_secret)"
-        )
+    if not portal_url:
+        logger.info("Auto-connect skipped: no portal_url in .env")
         return False
 
     client = _get_client()
-    try:
-        result = client.connect_client_credentials(portal_url, client_id, client_secret)
-        logger.info(
-            "Auto-connected to %s via client_credentials (user: %s)",
-            portal_url,
-            result.get("username", "unknown"),
-        )
-        return True
-    except Exception as e:
-        logger.warning("Auto-connect failed: %s", e)
-        return False
+
+    # Try username/password first (user-level token)
+    if username and password:
+        try:
+            result = client.connect_username_password(portal_url, username, password)
+            logger.info(
+                "Auto-connected to %s via generateToken (user: %s)",
+                portal_url,
+                result.get("username", "unknown"),
+            )
+            return True
+        except Exception as e:
+            logger.warning("generateToken auth failed, falling back to client_credentials: %s", e)
+
+    # Fall back to client_credentials (app-level token)
+    if client_id and client_secret:
+        try:
+            result = client.connect_client_credentials(portal_url, client_id, client_secret)
+            logger.info(
+                "Auto-connected to %s via client_credentials (user: %s)",
+                portal_url,
+                result.get("username", "unknown"),
+            )
+            return True
+        except Exception as e:
+            logger.warning("client_credentials auth failed: %s", e)
+
+    logger.info(
+        "Auto-connect skipped: no usable credentials in .env "
+        "(need username+password or oauth_client_id+oauth_client_secret)"
+    )
+    return False
 
 
 # =========================================================================
@@ -139,28 +160,36 @@ def connect_portal(
     token: str | None = None,
     client_id: str | None = None,
     client_secret: str | None = None,
+    username: str | None = None,
+    password: str | None = None,
 ) -> dict[str, Any]:
     """Connect to an ArcGIS Portal or ArcGIS Online instance.
 
-    Supports four authentication methods:
-    - auto: Read credentials from .env file and use client_credentials (default)
+    Supports five authentication methods:
+    - auto: Read credentials from .env file (default)
+    - username_password: Portal username + password -> generateToken (user-level)
     - token: Use an existing portal token (quickest for MCP)
     - client_credentials: OAuth2 app-level auth (no browser needed)
     - oauth2: Browser-based OAuth2 (full user permissions, blocks for ~2 min)
 
     For Enterprise portals with 2FA, use client_credentials or oauth2.
-    The .env file should contain: portal_url, oauth_client_id, oauth_client_secret.
+    The .env file should contain: portal_url, and either (username + password)
+    or (oauth_client_id + oauth_client_secret).
 
     Args:
         portal_url: Base URL of the portal (e.g. https://gis.example.com/portal).
                     Required for token/client_credentials/oauth2; optional for auto
                     (reads from .env).
-        auth_method: "auto", "token", "client_credentials", or "oauth2"
+        auth_method: "auto", "username_password", "token", "client_credentials", or "oauth2"
         token: Existing portal token (required when auth_method="token")
         client_id: OAuth2 client ID (required for client_credentials/oauth2,
                    optional for auto, reads from .env)
         client_secret: OAuth2 client secret (required for client_credentials/oauth2,
                        optional for auto, reads from .env)
+        username: Portal username (required for username_password,
+                  optional for auto, reads from .env)
+        password: Portal password (required for username_password,
+                  optional for auto, reads from .env)
     """
     client = _get_client()
 
@@ -168,11 +197,15 @@ def connect_portal(
         if auth_method == "auto":
             # Try auto-connect from .env
             if _auto_connect():
+                # Determine which method was used
+                env = _load_env()
+                has_user = env.get("username") or os.environ.get("ARCGIS_USERNAME")
+                method_used = "generateToken (auto)" if has_user else "client_credentials (auto)"
                 return {
                     "status": "ok",
                     "username": client.username,
                     "portal_url": client.portal_url,
-                    "auth_method": "client_credentials (auto)",
+                    "auth_method": method_used,
                     "expires_in": client._token_expires - __import__("time").time() if client._token_expires else None,
                 }
             else:
@@ -180,10 +213,32 @@ def connect_portal(
                     "status": "error",
                     "error": (
                         "Auto-connect failed. Ensure .env contains: "
-                        "portal_url, oauth_client_id, oauth_client_secret. "
-                        "Or specify auth_method='client_credentials' with explicit parameters."
+                        "portal_url and either (username + password) or "
+                        "(oauth_client_id + oauth_client_secret)."
                     ),
                 }
+
+        elif auth_method == "username_password":
+            if not username:
+                username = os.environ.get("username") or os.environ.get("ARCGIS_USERNAME")
+            if not password:
+                password = os.environ.get("password") or os.environ.get("ARCGIS_PASSWORD")
+            if not portal_url:
+                portal_url = os.environ.get("portal_url") or os.environ.get("PORTAL_URL")
+
+            if not all([portal_url, username, password]):
+                return {
+                    "status": "error",
+                    "error": "portal_url, username, and password are required (or set in .env)",
+                }
+            result = client.connect_username_password(portal_url, username, password)
+            return {
+                "status": "ok",
+                "username": result["username"],
+                "portal_url": client.portal_url,
+                "auth_method": "username_password",
+                "expires_in": result["expires_in"],
+            }
 
         elif auth_method == "token":
             if not token:
@@ -248,7 +303,7 @@ def connect_portal(
         else:
             return {
                 "status": "error",
-                "error": f"Unknown auth_method: {auth_method}. Use 'auto', 'token', 'client_credentials', or 'oauth2'.",
+                "error": f"Unknown auth_method: {auth_method}. Use 'auto', 'username_password', 'token', 'client_credentials', or 'oauth2'.",
             }
 
     except ConnectionError as e:
