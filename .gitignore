@@ -31,3 +31,4 @@ Thumbs.db
 # Sensitive
 .env
 *.token
+test_*.py
