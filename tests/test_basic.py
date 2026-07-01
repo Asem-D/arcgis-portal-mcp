@@ -44,6 +44,8 @@ def test_server_tools_count():
         "portal_system_info", "list_licenses", "portal_usage",
         # Phase 3, Batch Operations
         "batch_delete_items", "batch_share_items", "batch_update_items",
+        # Map Export
+        "export_map_image",
     ]
     assert tool_names == expected, f"Expected tools: {expected}, got: {tool_names}"
 

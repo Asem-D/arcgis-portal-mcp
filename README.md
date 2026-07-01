@@ -25,7 +25,7 @@ Built on the [Model Context Protocol](https://modelcontextprotocol.io) for integ
 
 ## Design Principles
 
-- **No `arcgis` Python package dependency**: uses raw REST API calls via `requests` for maximum compatibility (the `arcgis` package has installation issues on Windows)
+- **No `arcgis` Python package dependency**: uses raw REST API calls via `requests` for maximum compatibility (no need for `arcgis` package installation)
 - **Works with Enterprise Portal AND ArcGIS Online**: same tools, same API
 - **Token-first auth**: supports existing tokens, username/password, and OAuth2 for full flexibility
 - **Auto-connect**: reads `.env` file on startup, no manual auth needed per session

@@ -1431,6 +1431,76 @@ def batch_update_items(
 
 
 # =========================================================================
+# Map Export
+# =========================================================================
+
+
+@mcp.tool()
+def export_map_image(
+    service_url: str,
+    bbox: str = "",
+    width: int = 800,
+    height: int = 600,
+    image_sr: str = "4326",
+    format: str = "png",
+    dpi: int = 96,
+    transparent: bool = False,
+    layers: str = "",
+    where: str = "",
+) -> dict[str, Any]:
+    """Export a map image from a MapServer or FeatureServer as JPG/PNG/GIF/PDF/SVG.
+
+    Generates a rendered image of a map service layer. Useful for
+    visualizing spatial data, creating thumbnails, or generating
+    map snapshots.
+
+    Args:
+        service_url: Full URL to MapServer or FeatureServer endpoint
+            (e.g. https://services.arcgis.com/.../FeatureServer or MapServer)
+        bbox: Bounding box as 'xmin,ymin,xmax,ymax' in WGS84.
+            Leave empty to use the service default extent.
+        width: Image width in pixels (default 800, max 4096).
+        height: Image height in pixels (default 600, max 4096).
+        image_sr: Output spatial reference (default '4326' = WGS84).
+        format: Image format - png, jpg, gif, pdf, svg (default 'png').
+        dpi: Image resolution (default 96).
+        transparent: If true, background is transparent.
+        layers: Layer visibility, e.g. 'show:0,1' or 'hide:2'.
+        where: SQL where clause to filter features.
+
+    Returns:
+        Dict with file_path, dimensions, format, extent, and service info.
+    """
+    ensure_connected()
+
+    result = client.export_map_image(
+        service_url=service_url,
+        bbox=bbox or None,
+        width=width,
+        height=height,
+        image_sr=image_sr,
+        format=format,
+        dpi=dpi,
+        transparent=transparent,
+        layers=layers or None,
+        where=where or None,
+    )
+
+    if "error" in result:
+        return {"status": "error", "error": result["error"]}
+
+    return {
+        "status": "ok",
+        "file_path": result["file_path"],
+        "width": result["width"],
+        "height": result["height"],
+        "format": result["format"],
+        "extent": result.get("extent"),
+        "service_url": result["service_url"],
+    }
+
+
+# =========================================================================
 # Resources
 # =========================================================================
 

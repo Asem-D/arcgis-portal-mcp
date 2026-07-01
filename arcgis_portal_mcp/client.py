@@ -271,6 +271,7 @@ class ArcGISClient:
             "username": username,
             "password": password,
             "expiration": 120,  # minutes (2 hours)
+            "referer": portal_url,
             "f": "json",
         }
 
@@ -1237,6 +1238,188 @@ class ArcGISClient:
         if not result:
             return {"error": "Could not retrieve usage stats"}
         return result
+
+    # ------------------------------------------------------------------
+    # Map Export
+    # ------------------------------------------------------------------
+
+    def export_map_image(
+        self,
+        service_url: str,
+        bbox: str | None = None,
+        width: int = 800,
+        height: int = 600,
+        image_sr: str = "4326",
+        format: str = "png",
+        dpi: int = 96,
+        transparent: bool = False,
+        layers: str | None = None,
+        where: str | None = None,
+    ) -> dict[str, Any]:
+        """Export a map image from a MapServer or FeatureServer.
+
+        Calls the /export endpoint and saves the resulting image to a
+        temp file. Works with both ArcGIS Online and Enterprise Portal.
+
+        Args:
+            service_url: Full URL to a MapServer or FeatureServer
+                (e.g. https://services.arcgis.com/.../MapServer)
+            bbox: Bounding box as 'xmin,ymin,xmax,ymax'. If None, uses
+                the service's default full extent.
+            width: Image width in pixels (default 800).
+            height: Image height in pixels (default 600).
+            image_sr: Spatial reference for the output image (default 4326).
+            format: Image format - 'png', 'jpg', 'gif', 'pdf', 'svg'
+                (default 'png').
+            dpi: Image DPI (default 96).
+            transparent: If true, background is transparent.
+            layers: Layer visibility filter, e.g. 'show:0,1' or 'hide:2'.
+            where: SQL where clause to filter features (only layers
+                that support this).
+
+        Returns:
+            Dict with file_path, width, height, format, extent, and URL.
+        """
+        if not self.is_connected:
+            return {"error": "Not connected. Call connect_portal first."}
+
+        # Normalize service URL
+        svc = service_url.rstrip("/")
+        if not svc.endswith("/MapServer") and not svc.endswith("/FeatureServer"):
+            svc = f"{svc}/MapServer"
+
+        # FeatureServer does NOT support /export for map images.
+        # Try swapping to MapServer (many services publish both).
+        if svc.endswith("/FeatureServer"):
+            ms_url = svc.replace("/FeatureServer", "/MapServer")
+            try:
+                test_resp = self._session.get(
+                    f"{ms_url}/export",
+                    params={"f": "json", "token": self._token},
+                    timeout=15,
+                )
+                test_data = test_resp.json()
+                if "error" not in test_data and "supportedExportMapImageFormats" in test_data:
+                    svc = ms_url
+                else:
+                    # MapServer not available; FeatureServer-only service
+                    return {
+                        "error": (
+                            "This service is a FeatureServer which does not "
+                            "support map image export. Use a MapServer URL "
+                            "instead, or convert via: "
+                            f"{ms_url}"
+                        )
+                    }
+            except Exception:
+                return {
+                    "error": (
+                        "FeatureServer does not support /export. "
+                        "A MapServer equivalent was not found at: "
+                        f"{ms_url}"
+                    )
+                }
+
+        export_url = f"{svc}/export"
+
+        params: dict[str, Any] = {
+            "f": "json",
+            "size": f"{width},{height}",
+            "imageSR": image_sr,
+            "format": format,
+            "dpi": dpi,
+            "transparent": str(transparent).lower(),
+        }
+
+        if self._token:
+            params["token"] = self._token
+
+        if bbox:
+            params["bbox"] = bbox
+        elif not svc.endswith("/FeatureServer"):
+            # Some services require bbox. Try to auto-detect from service metadata.
+            try:
+                # Fetch metadata WITHOUT token first (public services).
+                # Token is org-specific and may be rejected by other servers.
+                meta_resp = self._session.get(svc, params={"f": "json"}, timeout=15)
+                meta_data = meta_resp.json()
+                full_extent = meta_data.get("fullExtent") or meta_data.get("initialExtent")
+                if full_extent:
+                    params["bbox"] = (
+                        f"{full_extent['xmin']},{full_extent['ymin']},"
+                        f"{full_extent['xmax']},{full_extent['ymax']}"
+                    )
+                    sr = full_extent.get("spatialReference", {})
+                    if sr.get("wkid"):
+                        params["imageSR"] = str(sr["wkid"])
+            except Exception:
+                pass  # will get a 400 if bbox truly required
+
+        if layers:
+            params["layers"] = layers
+        if where:
+            params["where"] = where
+
+        try:
+            resp = self._session.get(export_url, params=params, timeout=60)
+            resp.raise_for_status()
+            data = resp.json()
+
+            if "error" in data:
+                err = data["error"]
+                # 498 = invalid token; retry without token for public services
+                if isinstance(err, dict) and err.get("code") == 498:
+                    params.pop("token", None)
+                    resp = self._session.get(export_url, params=params, timeout=60)
+                    resp.raise_for_status()
+                    data = resp.json()
+                else:
+                    return {"error": err}
+
+            image_href = data.get("href")
+            if not image_href:
+                return {"error": "No image URL returned by export endpoint"}
+
+            # Download the actual image
+            img_resp = self._session.get(image_href, timeout=60)
+            img_resp.raise_for_status()
+
+            # Save to temp file
+            import tempfile
+            ext = format.lower()
+            if ext == "jpg":
+                ext = "jpeg"
+            suffix = f".{'jpg' if ext == 'jpeg' else ext}"
+            tmp = tempfile.NamedTemporaryFile(
+                suffix=suffix,
+                prefix="arcgis_export_",
+                delete=False,
+                dir=os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)), ".."
+                ),
+            )
+            tmp.write(img_resp.content)
+            tmp.close()
+
+            result = {
+                "file_path": tmp.name,
+                "width": data.get("width", width),
+                "height": data.get("height", height),
+                "format": format,
+                "service_url": svc,
+            }
+
+            # Include extent if returned
+            extent = data.get("extent")
+            if extent:
+                result["extent"] = extent
+
+            return result
+
+        except requests.exceptions.RequestException as e:
+            return {"error": f"Export request failed: {e}"}
+        except json.JSONDecodeError:
+            return {"error": "Export endpoint returned non-JSON response"}
 
     # ------------------------------------------------------------------
     # Batch Operations (Phase 3)
