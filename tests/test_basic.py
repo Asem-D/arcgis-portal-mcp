@@ -30,19 +30,19 @@ def test_server_tools_count():
         "connect_portal", "search_content", "get_item_details",
         "list_layers", "query_features", "list_users", "list_groups",
         "portal_health", "server_status",
-        # Phase 2 — Feature CRUD
+        # Phase 2, Feature CRUD
         "add_features", "update_features", "delete_features",
-        # Phase 2 — User/Group Management
+        # Phase 2, User/Group Management
         "get_user_details", "create_group", "invite_to_group",
-        # Phase 2 — Content Management
+        # Phase 2, Content Management
         "update_item", "delete_item", "share_item", "get_item_data",
-        # Phase 3 — Service Publishing
+        # Phase 3, Service Publishing
         "upload_item", "publish_from_item", "create_service",
-        # Phase 3 — Geoprocessing
+        # Phase 3, Geoprocessing
         "execute_gp_task", "submit_gp_job", "get_gp_job_status",
-        # Phase 3 — Portal Admin
+        # Phase 3, Portal Admin
         "portal_system_info", "list_licenses", "portal_usage",
-        # Phase 3 — Batch Operations
+        # Phase 3, Batch Operations
         "batch_delete_items", "batch_share_items", "batch_update_items",
     ]
     assert tool_names == expected, f"Expected tools: {expected}, got: {tool_names}"

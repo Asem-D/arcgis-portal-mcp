@@ -1,7 +1,7 @@
 """ArcGIS REST API client.
 
 Raw REST API client for ArcGIS Portal/Online. No dependency on the
-`arcgis` Python package — uses requests directly. Handles authentication,
+`arcgis` Python package, uses requests directly. Handles authentication,
 token management, and both Sharing and Admin API endpoints.
 
 Supports:
@@ -49,7 +49,7 @@ class ArcGISClient:
         self._username: str | None = None
         self._user_info: dict[str, Any] | None = None
         self._session = requests.Session()
-        self._session.verify = False  # noqa: S501 — Enterprise portals often use self-signed certs
+        self._session.verify = False  # noqa: S501, Enterprise portals often use self-signed certs
         self._session.timeout = 30
         self._lock = threading.Lock()
 
@@ -95,7 +95,7 @@ class ArcGISClient:
         self._token = token
         self._username = user_info.get("username", "unknown")
         self._user_info = user_info
-        # Tokens from sharing API don't always include expires — assume long-lived
+        # Tokens from sharing API don't always include expires, assume long-lived
         self._token_expires = datetime.now().timestamp() + 86400  # 24h fallback
 
         logger.info("Connected as %s (existing token)", self._username)
@@ -106,7 +106,7 @@ class ArcGISClient:
     ) -> dict[str, Any]:
         """Connect using OAuth2 client_credentials grant (no browser needed).
 
-        App-level token — no user identity. Good for portal info, content
+        App-level token, no user identity. Good for portal info, content
         search, and other non-user-specific operations.
 
         Args:
@@ -164,7 +164,7 @@ class ArcGISClient:
         for token. Returns user-level token with full permissions.
 
         WARNING: This blocks for up to 120 seconds waiting for browser auth.
-        Not suitable for MCP tool calls — use for initial setup only.
+        Not suitable for MCP tool calls, use for initial setup only.
 
         Args:
             portal_url: Base URL of the Portal
@@ -266,7 +266,7 @@ class ArcGISClient:
             JSON response dict, or None on error.
         """
         if not self.portal_url:
-            logger.error("Not connected — call connect_* first")
+            logger.error("Not connected, call connect_* first")
             return None
 
         return self._sharing_request(endpoint, params=params, method=method)
@@ -285,11 +285,11 @@ class ArcGISClient:
             JSON response dict, or None on error.
         """
         if not self.portal_url:
-            logger.error("Not connected — call connect_* first")
+            logger.error("Not connected, call connect_* first")
             return None
 
         if not self.is_connected:
-            logger.error("Token expired — reconnect first")
+            logger.error("Token expired, reconnect first")
             return None
 
         url = f"{self.portal_url.rstrip('/')}/portaladmin{endpoint}"
@@ -737,7 +737,7 @@ class ArcGISClient:
             title: Group title (required)
             name: Group name (URL-friendly). Defaults to title.
             description: Group description
-            access: Access level — private, org, public
+            access: Access level, private, org, public
             is_invitation_only: If True, users must be invited to join
 
         Returns:
@@ -771,7 +771,7 @@ class ArcGISClient:
         Args:
             group_id: The group ID
             users: Comma-separated usernames to invite
-            role: Role for invited users — member or admin
+            role: Role for invited users, member or admin
             message: Invitation message
 
         Returns:
@@ -1164,7 +1164,7 @@ class ArcGISClient:
         Args:
             start_time: Start time as epoch ms or ISO string. Defaults to 30 days ago.
             end_time: End time as epoch ms or ISO string. Defaults to now.
-            period: Aggregation period — 1d, 1w, 1M (1d recommended).
+            period: Aggregation period, 1d, 1w, 1M (1d recommended).
             host_type: 'portal' or 'server'.
 
         Returns:

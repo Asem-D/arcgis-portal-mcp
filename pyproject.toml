@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "arcgis-portal-mcp"
 version = "1.0.0"
-description = "MCP server for ArcGIS Portal and Online — lets AI assistants search content, query features, manage users, and administer ArcGIS deployments"
+description = "MCP server for ArcGIS Portal and Online. Lets AI assistants search content, query features, manage users, and administer ArcGIS deployments."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
@@ -51,7 +51,7 @@ dev = [
     "ruff>=0.1.0",
 ]
 
-# [project.scripts] — entry point defined in __main__.py for now
+# [project.scripts] -- entry point defined in __main__.py for now
 
 [project.urls]
 Homepage = "https://github.com/Asem-D/arcgis-portal-mcp"

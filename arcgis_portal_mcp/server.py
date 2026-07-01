@@ -32,7 +32,7 @@ mcp = FastMCP(
         "Search content, query features, manage users and groups, "
         "publish services, run geoprocessing tasks, and administer "
         "the portal. Supports both Enterprise Portal and "
-        "ArcGIS Online. No dependency on the `arcgis` Python package — "
+        "ArcGIS Online. No dependency on the `arcgis` Python package, "
         "uses raw REST API for maximum compatibility."
     ),
 )
@@ -158,9 +158,9 @@ def connect_portal(
         auth_method: "auto", "token", "client_credentials", or "oauth2"
         token: Existing portal token (required when auth_method="token")
         client_id: OAuth2 client ID (required for client_credentials/oauth2,
-                   optional for auto — reads from .env)
+                   optional for auto, reads from .env)
         client_secret: OAuth2 client secret (required for client_credentials/oauth2,
-                       optional for auto — reads from .env)
+                       optional for auto, reads from .env)
     """
     client = _get_client()
 
@@ -425,7 +425,7 @@ def query_features(
 
     Args:
         item_id: The feature service item ID
-        layer_id: Layer ID within the service (default 0 — the first layer)
+        layer_id: Layer ID within the service (default 0, the first layer)
         where: SQL WHERE clause for attribute filtering (e.g. "STATUS = 'Active'")
                Use "1=1" for no filter (default).
         out_fields: Comma-separated field names to return (default "*" = all fields).
@@ -466,7 +466,7 @@ def query_features(
             params["token"] = client.token
 
         if bbox:
-            # Format: xmin,ymin,xmax,ymax — also set spatial relationship
+            # Format: xmin,ymin,xmax,ymax, also set spatial relationship
             parts = [float(x.strip()) for x in bbox.split(",")]
             if len(parts) == 4:
                 params["geometry"] = ",".join(str(p) for p in parts)
@@ -583,7 +583,7 @@ def portal_health() -> dict[str, Any]:
     """Check the health and status of the connected ArcGIS Portal.
 
     Returns portal name, version, organization ID, and health check results.
-    Requires admin privileges for full health check — returns basic info
+    Requires admin privileges for full health check, returns basic info
     if not admin.
     """
     client = _require_connected()
@@ -632,7 +632,7 @@ def server_status() -> dict[str, Any]:
 
 
 # =========================================================================
-# Phase 2 — Feature CRUD
+# Phase 2, Feature CRUD
 # =========================================================================
 
 
@@ -734,7 +734,7 @@ def delete_features(
 
 
 # =========================================================================
-# Phase 2 — User / Group Management
+# Phase 2, User / Group Management
 # =========================================================================
 
 
@@ -770,7 +770,7 @@ def create_group(
         title: Display name for the group.
         name: URL-friendly group name. Defaults to title if not set.
         description: Group description.
-        access: Visibility — "private" (group members only), "org" (organization), or "public".
+        access: Visibility, "private" (group members only), "org" (organization), or "public".
         is_invitation_only: If true, users must be invited to join.
 
     Returns:
@@ -802,7 +802,7 @@ def invite_to_group(
     Args:
         group_id: The group ID to invite users to.
         users: Comma-separated usernames to invite (e.g. "jsmith,mgarcia").
-        role: Role assigned to invited users — "member" (default) or "admin".
+        role: Role assigned to invited users, "member" (default) or "admin".
         message: Optional invitation message.
 
     Returns:
@@ -822,7 +822,7 @@ def invite_to_group(
 
 
 # =========================================================================
-# Phase 2 — Content Management
+# Phase 2, Content Management
 # =========================================================================
 
 
@@ -845,7 +845,7 @@ def update_item(
         description: New description.
         snippet: New summary/snippet.
         tags: Comma-separated tags to set (replaces existing tags).
-        access: New access level — "private", "org", or "public".
+        access: New access level, "private", "org", or "public".
 
     Returns:
         Update result.
@@ -937,7 +937,7 @@ def get_item_data(item_id: str) -> dict[str, Any]:
 
 
 # =========================================================================
-# Phase 3 — Service Publishing
+# Phase 3, Service Publishing
 # =========================================================================
 
 
@@ -961,7 +961,7 @@ def upload_item(
     Args:
         file_path: Local path to the file to upload.
         title: Item title.
-        type: ArcGIS item type — 'CSV', 'Shapefile', 'GeoJSON', 'KML',
+        type: ArcGIS item type, 'CSV', 'Shapefile', 'GeoJSON', 'KML',
               'File Geodatabase', 'Service Definition', etc.
         tags: Comma-separated tags for searchability.
         description: Longer description.
@@ -970,7 +970,7 @@ def upload_item(
         owner: Owner username. Defaults to connected user.
 
     Returns:
-        Item info including the new item ID — use with publish_from_item.
+        Item info including the new item ID, use with publish_from_item.
     """
     client = _require_connected()
     if not client:
@@ -1091,7 +1091,7 @@ def create_service(
 
 
 # =========================================================================
-# Phase 3 — Geoprocessing
+# Phase 3, Geoprocessing
 # =========================================================================
 
 
@@ -1184,7 +1184,7 @@ def get_gp_job_status(
 
 
 # =========================================================================
-# Phase 3 — Portal Admin (Enterprise)
+# Phase 3, Portal Admin (Enterprise)
 # =========================================================================
 
 
@@ -1241,7 +1241,7 @@ def portal_usage(
                     Defaults to 30 days ago.
         end_time: End time as epoch milliseconds or ISO string.
                   Defaults to now.
-        period: Aggregation period — '1d' (daily), '1w' (weekly),
+        period: Aggregation period, '1d' (daily), '1w' (weekly),
                 '1M' (monthly).
         host_type: 'portal' or 'server'.
 
@@ -1262,7 +1262,7 @@ def portal_usage(
 
 
 # =========================================================================
-# Phase 3 — Batch Operations
+# Phase 3, Batch Operations
 # =========================================================================
 
 
@@ -1353,7 +1353,7 @@ def batch_update_items(
         description: New description.
         snippet: New summary.
         tags: New comma-separated tags (replaces existing).
-        access: New access level — 'private', 'org', or 'public'.
+        access: New access level, 'private', 'org', or 'public'.
         owner: Owner username. Defaults to connected user.
 
     Returns:
@@ -1388,30 +1388,30 @@ def arcgis_rest_guide() -> str:
 ## Authentication
 - Token-based: Add `?token=TOKEN` to any request
 - OAuth2 endpoints: `/sharing/rest/oauth2/token`, `/sharing/rest/oauth2/authorize`
-- Tokens expire — check `expires_in` and reconnect when needed
+- Tokens expire, check `expires_in` and reconnect when needed
 
 ## Sharing REST API Endpoints
-- `/sharing/rest/search` — Search items (GET, params: q, start, num)
-- `/sharing/rest/content/items/{id}` — Get item details
-- `/sharing/rest/content/items/{id}/data` — Get item data (web map JSON, etc.)
-- `/sharing/rest/content/users/{owner}/items/{id}/update` — Update item properties (POST)
-- `/sharing/rest/content/users/{owner}/items/{id}/delete` — Delete item (POST)
-- `/sharing/rest/content/users/{owner}/items/{id}/share` — Share/unshare item (POST)
-- `/sharing/rest/portals/self` — Organization info
-- `/sharing/rest/portals/self/users` — List users
-- `/sharing/rest/portals/self/groups` — List groups
-- `/sharing/rest/community/self` — Current user info
-- `/sharing/rest/community/users/{username}` — User details
-- `/sharing/rest/community/createGroup` — Create group (POST)
-- `/sharing/rest/community/groups/{id}/invite` — Invite users to group (POST)
+- `/sharing/rest/search`, Search items (GET, params: q, start, num)
+- `/sharing/rest/content/items/{id}`, Get item details
+- `/sharing/rest/content/items/{id}/data`, Get item data (web map JSON, etc.)
+- `/sharing/rest/content/users/{owner}/items/{id}/update`, Update item properties (POST)
+- `/sharing/rest/content/users/{owner}/items/{id}/delete`, Delete item (POST)
+- `/sharing/rest/content/users/{owner}/items/{id}/share`, Share/unshare item (POST)
+- `/sharing/rest/portals/self`, Organization info
+- `/sharing/rest/portals/self/users`, List users
+- `/sharing/rest/portals/self/groups`, List groups
+- `/sharing/rest/community/self`, Current user info
+- `/sharing/rest/community/users/{username}`, User details
+- `/sharing/rest/community/createGroup`, Create group (POST)
+- `/sharing/rest/community/groups/{id}/invite`, Invite users to group (POST)
 
 ## Feature Service Operations
-- `{service_url}/{layerId}/query` — Query features
+- `{service_url}/{layerId}/query`, Query features
   - where, outFields, returnGeometry, outSR, resultOffset, resultRecordCount
   - geometry, geometryType, spatialRel for spatial filtering
-- `{service_url}/{layerId}/addFeatures` — Add features (POST, features=[…])
-- `{service_url}/{layerId}/updateFeatures` — Update features (POST, features=[…])
-- `{service_url}/{layerId}/deleteFeatures` — Delete features (POST, objectIds or where)
+- `{service_url}/{layerId}/addFeatures`, Add features (POST, features=[…])
+- `{service_url}/{layerId}/updateFeatures`, Update features (POST, features=[…])
+- `{service_url}/{layerId}/deleteFeatures`, Delete features (POST, objectIds or where)
 
 ## Common Item Types
 - Feature Service, Map Service, Image Service, Scene Service
@@ -1429,19 +1429,19 @@ def arcgis_rest_guide() -> str:
 - Admin API: https://{hostname}/{webadaptor}/portaladmin/
 
 ## Service Publishing
-- `/content/users/{owner}/add` — Upload a file (POST, multipart)
-- `/content/users/{owner}/publish` — Publish item as feature service (POST)
-- `/content/users/{owner}/createService` — Create hosted feature service (POST)
+- `/content/users/{owner}/add`, Upload a file (POST, multipart)
+- `/content/users/{owner}/publish`, Publish item as feature service (POST)
+- `/content/users/{owner}/createService`, Create hosted feature service (POST)
 
 ## Geoprocessing
-- `{gp_service_url}/execute` — Synchronous GP task (POST)
-- `{gp_service_url}/submitJob` — Async GP job submission (POST)
-- `{gp_service_url}/jobs/{jobId}` — Check async job status (GET)
+- `{gp_service_url}/execute`, Synchronous GP task (POST)
+- `{gp_service_url}/submitJob`, Async GP job submission (POST)
+- `{gp_service_url}/jobs/{jobId}`, Check async job status (GET)
 
 ## Portal Admin (Enterprise only)
-- `/portaladmin/` — System info (GET)
-- `/portaladmin/license` — License information (GET)
-- `/portaladmin/portalusage` — Usage statistics (GET)
+- `/portaladmin/`, System info (GET)
+- `/portaladmin/license`, License information (GET)
+- `/portaladmin/portalusage`, Usage statistics (GET)
 """
 
 
@@ -1461,9 +1461,9 @@ def main() -> None:
 
     # Auto-connect from .env if credentials are available
     if _auto_connect():
-        logger.info("Ready — connected to portal via .env credentials")
+        logger.info("Ready, connected to portal via .env credentials")
     else:
-        logger.info("Ready — waiting for connect_portal tool call")
+        logger.info("Ready, waiting for connect_portal tool call")
 
     mcp.run()
 

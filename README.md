@@ -1,8 +1,10 @@
 # arcgis-portal-mcp
 
-MCP server for ArcGIS Portal and Online — lets AI assistants search content, query feature layers, manage features, handle content operations, and administer users and groups.
+MCP server for ArcGIS Portal and ArcGIS Online. Lets AI assistants search content, query feature layers, manage features, handle content operations, and administer users and groups.
 
 Built on the [Model Context Protocol](https://modelcontextprotocol.io) for integration with Claude Desktop, Cursor, VS Code Copilot, and other MCP clients.
+
+> **Disclaimer:** This is an independent open-source project. It is not affiliated with, endorsed by, or sponsored by Esri Inc. "ArcGIS" is a registered trademark of Esri.
 
 ## Features
 
@@ -12,23 +14,23 @@ Built on the [Model Context Protocol](https://modelcontextprotocol.io) for integ
 - **List layers** in a feature service with geometry types and counts
 - **Query features** with attribute filters, spatial filters, field selection, and pagination
 - **Add, update, and delete features** in hosted feature layers
-- **Manage content** — update item properties, share/unshare, delete items, read web map definitions
-- **Manage users** — list users, get detailed user profiles
-- **Manage groups** — list groups, create groups, invite users
-- **Publish services** — upload files and publish as hosted feature services
-- **Run geoprocessing** — execute synchronous and asynchronous GP tasks
-- **Portal admin** — system info, license management, usage statistics
-- **Batch operations** — bulk delete, share, and update multiple items
+- **Manage content**: update item properties, share/unshare, delete items, read web map definitions
+- **Manage users**: list users, get detailed user profiles
+- **Manage groups**: list groups, create groups, invite users
+- **Publish services**: upload files and publish as hosted feature services
+- **Run geoprocessing**: execute synchronous and asynchronous GP tasks
+- **Portal admin**: system info, license management, usage statistics
+- **Batch operations**: bulk delete, share, and update multiple items
 - **Health check** portal system status (requires admin privileges)
 
 ## Design Principles
 
-- **No `arcgis` Python package dependency** — uses raw REST API calls via `requests` for maximum compatibility (the `arcgis` package has installation issues on Windows)
-- **Works with Enterprise Portal AND ArcGIS Online** — same tools, same API
-- **Token-first auth** — supports existing tokens for zero-friction MCP integration
-- **Auto-connect** — reads `.env` file on startup, no manual auth needed per session
-- **2FA-friendly** — works with Enterprise portals that require two-factor authentication (client_credentials, no browser)
-- **Self-signed cert friendly** — handles Enterprise portals with self-signed certificates
+- **No `arcgis` Python package dependency**: uses raw REST API calls via `requests` for maximum compatibility (the `arcgis` package has installation issues on Windows)
+- **Works with Enterprise Portal AND ArcGIS Online**: same tools, same API
+- **Token-first auth**: supports existing tokens for zero-friction MCP integration
+- **Auto-connect**: reads `.env` file on startup, no manual auth needed per session
+- **2FA-friendly**: works with Enterprise portals that require two-factor authentication (client_credentials, no browser)
+- **Self-signed cert friendly**: handles Enterprise portals with self-signed certificates
 
 ## Installation
 
@@ -60,7 +62,7 @@ oauth_client_id=your-oauth-app-client-id
 oauth_client_secret=your-oauth-app-client-secret
 ```
 
-The server reads these on startup and connects via `client_credentials` automatically — no manual `connect_portal` call needed.
+The server reads these on startup and connects via `client_credentials` automatically. No manual `connect_portal` call needed.
 
 > **Note:** The `.env` file is gitignored. Never commit credentials. `.env.example` is safe to commit.
 
@@ -185,7 +187,7 @@ Agent: [calls list_licenses to show license allocation and usage]
 
 ## Available Tools
 
-### Phase 1 — Read-only (v0.1)
+### Phase 1: Read-only (v0.1)
 
 | Tool | Description |
 |------|-------------|
@@ -199,7 +201,7 @@ Agent: [calls list_licenses to show license allocation and usage]
 | `portal_health` | Check portal health and system status |
 | `server_status` | Check MCP server connection state |
 
-### Phase 2 — Feature CRUD, User/Group & Content Management (v0.2)
+### Phase 2: Feature CRUD, User/Group & Content Management (v0.2)
 
 | Tool | Description |
 |------|-------------|
@@ -214,7 +216,7 @@ Agent: [calls list_licenses to show license allocation and usage]
 | `share_item` | Share/unshare an item with everyone, org, or specific groups |
 | `get_item_data` | Read item data (web map JSON, app config, feature collections) |
 
-### Phase 3 — Publishing, Geoprocessing, Admin & Batch (v1.0)
+### Phase 3: Publishing, Geoprocessing, Admin & Batch (v1.0)
 
 | Tool | Description |
 |------|-------------|
@@ -226,7 +228,7 @@ Agent: [calls list_licenses to show license allocation and usage]
 | `get_gp_job_status` | Check status of a running async geoprocessing job |
 | `portal_system_info` | Get portal version, platform, and system info (admin) |
 | `list_licenses` | Get license information and assignments (admin) |
-| `portal_usage` | Get portal usage statistics — users, API calls, storage (admin) |
+| `portal_usage` | Get portal usage statistics: users, API calls, storage (admin) |
 | `batch_delete_items` | Delete multiple items at once |
 | `batch_share_items` | Share/unshare multiple items with the same audiences |
 | `batch_update_items` | Update properties of multiple items at once |
@@ -240,7 +242,7 @@ Agent: [calls list_licenses to show license allocation and usage]
 | **Client Credentials** | No browser needed, auto-refresh | App-level only (no user identity) |
 | **OAuth2** | Full user permissions, 14-day tokens | Opens browser, blocks for ~2 min |
 
-**Recommendation for Enterprise portals with 2FA:** Use `auto` (`.env` with `client_credentials`). Token auth won't work because 2FA blocks token generation. The `client_credentials` flow uses app-level OAuth2 — no browser, no 2FA, no user interaction.
+**Recommendation for Enterprise portals with 2FA:** Use `auto` (`.env` with `client_credentials`). Token auth won't work because 2FA blocks token generation. The `client_credentials` flow uses app-level OAuth2, no browser, no 2FA, no user interaction.
 
 **For ArcGIS Online or portals without 2FA:** Token auth is the fastest for MCP. Use OAuth2 once to get a long-lived token, then use that token for MCP sessions.
 
@@ -259,8 +261,8 @@ ruff check arcgis_portal_mcp/
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
 
 ## Author
 
-Asem Daaboul — [asem.daaboul@gmail.com](mailto:asem.daaboul@gmail.com)
+Asem Daaboul ([asem.daaboul@gmail.com](mailto:asem.daaboul@gmail.com))
