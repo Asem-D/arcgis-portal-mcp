@@ -17,15 +17,17 @@ from __future__ import annotations
 import json
 import logging
 import os
-import threading
 import urllib.parse
 import webbrowser
 from datetime import datetime
+from html import escape as html_escape
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 
 import requests
 import urllib3
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 # Suppress InsecureRequestWarning for self-signed certs (common with Enterprise)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -51,7 +53,18 @@ class ArcGISClient:
         self._session = requests.Session()
         self._session.verify = False  # noqa: S501, Enterprise portals often use self-signed certs
         self._session.timeout = 30
-        self._lock = threading.Lock()
+
+        # Retry with exponential backoff for transient failures
+        retry_strategy = Retry(
+            total=3,
+            backoff_factor=0.5,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["GET", "POST"],
+            connect=1,  # Only 1 retry on connection errors
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        self._session.mount("https://", adapter)
+        self._session.mount("http://", adapter)
 
     @property
     def is_connected(self) -> bool:
@@ -1612,7 +1625,7 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
             self.end_headers()
             msg = (
                 f"<html><body><h2>Authentication failed: "
-                f"{self.server.auth_error}</h2></body></html>"  # type: ignore[attr-defined]
+                f"{html_escape(str(self.server.auth_error))}</h2></body></html>"  # type: ignore[attr-defined]
             )
             self.wfile.write(msg.encode())
         else:

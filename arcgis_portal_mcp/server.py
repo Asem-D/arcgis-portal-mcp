@@ -24,6 +24,33 @@ from .client import ArcGISClient
 
 logger = logging.getLogger("arcgis-portal-mcp")
 
+# WHERE clause validation — blocks SQL injection patterns
+import re
+
+# Destructive SQL keywords that should never appear in a WHERE clause
+_DANGEROUS_SQL_PATTERNS = re.compile(
+    r"(?:;\s*(?:DROP|DELETE|INSERT|UPDATE|ALTER|TRUNCATE|CREATE|EXEC|EXECUTE|GRANT|REVOKE)"
+    r"|--\s"
+    r"|/\*"
+    r"|\*/"
+    r"|\b(?:DROP|DELETE|INSERT|UPDATE|ALTER|TRUNCATE|CREATE|EXEC|EXECUTE|GRANT|REVOKE)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _validate_where_clause(where: str) -> str | None:
+    """Validate a WHERE clause for safety. Returns an error message if invalid, else None."""
+    if not where or where.strip() == "1=1":
+        return None
+    if _DANGEROUS_SQL_PATTERNS.search(where):
+        return (
+            f"WHERE clause contains potentially dangerous SQL: '{where}'. "
+            "Only simple attribute filters are allowed (e.g., \"STATUS = 'Active'\")."
+        )
+    return None
+
+
 # Create the MCP server
 mcp = FastMCP(
     "arcgis-portal-mcp",
@@ -494,8 +521,11 @@ def query_features(
     if not client:
         return {"status": "error", "error": "Not connected. Call connect_portal first."}
 
+    where_err = _validate_where_clause(where)
+    if where_err:
+        return {"status": "error", "error": where_err}
+
     try:
-        # Get item details for the service URL
         details = client.get_item_details(item_id)
         if not details or "error" in details:
             return {"status": "error", "error": "Item not found or inaccessible"}
@@ -779,6 +809,11 @@ def delete_features(
 
     if not object_ids and not where_clause:
         return {"status": "error", "error": "Provide either object_ids or where_clause"}
+
+    if where_clause:
+        where_err = _validate_where_clause(where_clause)
+        if where_err:
+            return {"status": "error", "error": where_err}
 
     result = client.delete_features(
         service_url, layer_id,
@@ -1471,7 +1506,14 @@ def export_map_image(
     Returns:
         Dict with file_path, dimensions, format, extent, and service info.
     """
-    ensure_connected()
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    if where:
+        where_err = _validate_where_clause(where)
+        if where_err:
+            return {"status": "error", "error": where_err}
 
     result = client.export_map_image(
         service_url=service_url,

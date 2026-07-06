@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "arcgis-portal-mcp"
-version = "1.0.0"
+version = "1.2.0"
 description = "MCP server for ArcGIS Portal and Online. Lets AI assistants search content, query features, manage users, and administer ArcGIS deployments."
 readme = "README.md"
 license = "MIT"

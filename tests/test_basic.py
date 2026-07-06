@@ -5,7 +5,7 @@ from arcgis_portal_mcp.client import ArcGISClient
 
 
 def test_version():
-    assert __version__ == "1.1.0"
+    assert __version__ == "1.2.0"
 
 
 def test_client_init():
@@ -55,3 +55,25 @@ def test_server_resource_count():
     resources = list(mcp._resource_manager._resources.keys())
     assert len(resources) == 1
     assert "arcgis://guide" in resources
+
+
+def test_where_clause_validation():
+    """WHERE clause validation blocks dangerous SQL patterns."""
+    from arcgis_portal_mcp.server import _validate_where_clause
+
+    # Safe clauses
+    assert _validate_where_clause("") is None
+    assert _validate_where_clause("1=1") is None
+    assert _validate_where_clause("STATUS = 'Active'") is None
+    assert _validate_where_clause("POP > 1000 AND NAME LIKE '%test%'") is None
+    assert _validate_where_clause("OBJECTID IN (1, 2, 3)") is None
+
+    # Dangerous patterns
+    assert _validate_where_clause("1=1; DROP TABLE users") is not None
+    assert _validate_where_clause("1=1 -- comment") is not None
+    assert _validate_where_clause("1=1 /* comment */") is not None
+    assert _validate_where_clause("DROP TABLE users") is not None
+    assert _validate_where_clause("DELETE FROM users") is not None
+    assert _validate_where_clause("INSERT INTO users VALUES (1)") is not None
+    assert _validate_where_clause("UPDATE users SET role='admin'") is not None
+    assert _validate_where_clause("TRUNCATE TABLE users") is not None

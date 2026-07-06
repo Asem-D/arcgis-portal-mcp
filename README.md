@@ -25,12 +25,13 @@ Built on the [Model Context Protocol](https://modelcontextprotocol.io) for integ
 
 ## Design Principles
 
-- **No `arcgis` Python package dependency**: uses raw REST API calls via `requests` for maximum compatibility (no need for `arcgis` package installation)
+- **No `arcgis` Python package dependency**: uses raw REST API calls via `requests` so you don't need to install the `arcgis` package
 - **Works with Enterprise Portal AND ArcGIS Online**: same tools, same API
-- **Token-first auth**: supports existing tokens, username/password, and OAuth2 for full flexibility
+- **Multiple auth methods**: token, username/password (generateToken), client_credentials, and OAuth2
 - **Auto-connect**: reads `.env` file on startup, no manual auth needed per session
 - **2FA-friendly**: works with Enterprise portals that require two-factor authentication (client_credentials, no browser)
 - **Self-signed cert friendly**: handles Enterprise portals with self-signed certificates
+- **Hardened**: SQL injection validation on WHERE clauses, XSS protection in OAuth callbacks, automatic retry with exponential backoff on transient failures
 
 ## Installation
 
@@ -112,7 +113,7 @@ The `connect_portal` tool accepts these `auth_method` values:
 
 | Value | Behavior |
 |-------|----------|
-| `auto` | Read from `.env` (default) — tries username/password first, then client_credentials |
+| `auto` | Read from `.env` (default). Tries username/password first, then client_credentials |
 | `username_password` | Portal username + password -> generateToken (user-level) |
 | `token` | Use explicit portal token |
 | `client_credentials` | Use explicit client_id/secret |
@@ -228,6 +229,7 @@ Agent: [calls list_licenses to show license allocation and usage]
 | `upload_item` | Upload a local file (CSV, Shapefile, etc.) to portal content |
 | `publish_from_item` | Publish an uploaded item as a hosted feature service |
 | `create_service` | Create an empty hosted feature service with schema |
+| `export_map_image` | Export a MapServer/FeatureServer layer as JPG/PNG/GIF/PDF/SVG |
 | `execute_gp_task` | Run a synchronous geoprocessing task |
 | `submit_gp_job` | Submit an async GP job and get a job ID for polling |
 | `get_gp_job_status` | Check status of a running async geoprocessing job |
@@ -242,14 +244,17 @@ Agent: [calls list_licenses to show license allocation and usage]
 
 | Method | Pros | Cons |
 |--------|------|------|
-| **Auto** (default) | Zero-config, reads `.env` on startup | App-level only (no user identity) |
+| **Auto** (default) | Zero-config, reads `.env` on startup | Falls back to app-level if no username/password |
+| **Username/Password** | User-level permissions via generateToken | Tokens expire in 2 hours; blocked by 2FA |
 | **Token** | Quick, no dependencies | Tokens expire, must be obtained separately |
-| **Client Credentials** | No browser needed, auto-refresh | App-level only (no user identity) |
+| **Client Credentials** | No browser needed, no 2FA | App-level only (no user identity) |
 | **OAuth2** | Full user permissions, 14-day tokens | Opens browser, blocks for ~2 min |
 
 **Recommendation for Enterprise portals with 2FA:** Use `auto` (`.env` with `client_credentials`). Token auth won't work because 2FA blocks token generation. The `client_credentials` flow uses app-level OAuth2, no browser, no 2FA, no user interaction.
 
-**For ArcGIS Online or portals without 2FA:** Token auth is the fastest for MCP. Use OAuth2 once to get a long-lived token, then use that token for MCP sessions.
+**For ArcGIS Online or portals without 2FA:** Username/password auth via `generateToken` is the fastest for MCP. Place `username` and `password` in your `.env` file for auto-connect on startup.
+
+**For full user permissions:** Use OAuth2 once to get a long-lived token, then pass it directly.
 
 ## Development
 
