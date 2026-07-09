@@ -34,3 +34,9 @@ Thumbs.db
 test_*.py
 _share.py
 _test_admin_token.py
+
+# Working files
+ESRI_MCP_COMPARISON.md
+screenshot_webmap.py
+webmap_screenshot.png
+*.png
