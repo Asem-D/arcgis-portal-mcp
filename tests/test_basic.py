@@ -28,7 +28,12 @@ def test_server_tools_count():
     expected = [
         # Phase 1
         "connect_portal", "search_content", "get_item_details",
-        "list_layers", "query_features", "list_users", "list_groups",
+        "list_layers", "describe_layer",
+        # Phase 3, GP Inspection (inserted early for tool registration order)
+        "get_gp_task_info",
+        # Phase 1 (continued)
+        "query_features",
+        "list_users", "list_groups",
         "portal_health", "server_status",
         # Phase 2, Feature CRUD
         "add_features", "update_features", "delete_features",

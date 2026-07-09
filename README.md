@@ -1,24 +1,41 @@
 # arcgis-portal-mcp
 
-MCP server for ArcGIS Portal and ArcGIS Online. Lets AI assistants search content, query feature layers, manage features, handle content operations, and administer users and groups.
+The most complete MCP server for ArcGIS. 34 tools that cover the full ArcGIS content lifecycle — from search and inspection through editing, publishing, and administration. Works with **both ArcGIS Enterprise Portal and ArcGIS Online**.
 
 Built on the [Model Context Protocol](https://modelcontextprotocol.io) for integration with Claude Desktop, Cursor, VS Code Copilot, and other MCP clients.
 
 > **Disclaimer:** This is an independent open-source project. It is not affiliated with, endorsed by, or sponsored by Esri Inc. "ArcGIS" is a registered trademark of Esri.
+
+## Why arcgis-portal-mcp?
+
+| Capability | arcgis-portal-mcp | ESRI Beta MCP (2026) |
+|---|---|---|
+| **Tools** | 34 | 10 |
+| **ArcGIS Online** | ✅ Full support | ❌ Enterprise only |
+| **Content CRUD** | ✅ Create, upload, publish, update, delete | ❌ Read-only |
+| **Feature editing** | ✅ Add, update, delete features | ❌ Read-only queries |
+| **User & group management** | ✅ Full admin + governance | ❌ Not available |
+| **Batch operations** | ✅ Bulk delete, share, update | ❌ Single item only |
+| **GP inspection** | ✅ `get_gp_task_info` — inspect schemas before execution | ⚠️ Partial |
+| **Layer schema inspection** | ✅ `describe_layer` — fields, domains, subtypes, relationships | ⚠️ Partial |
+| **Installation** | Zero-install (pip or source) | MCP overlay on Enterprise |
+| **Auth** | 5 methods (auto, token, username/password, client_credentials, OAuth2) | OAuth only |
 
 ## Features
 
 - **Connect** to any ArcGIS Enterprise Portal or ArcGIS Online
 - **Search** for items (feature services, web maps, layers, dashboards)
 - **Inspect** item metadata, tags, and descriptions
-- **List layers** in a feature service with geometry types and counts
+- **List and describe layers** — list layers in a service, then get full schema details (fields, types, domains, subtypes, relationships, extent, renderer)
 - **Query features** with attribute filters, spatial filters, field selection, and pagination
 - **Add, update, and delete features** in hosted feature layers
 - **Manage content**: update item properties, share/unshare, delete items, read web map definitions
 - **Manage users**: list users, get detailed user profiles
 - **Manage groups**: list groups, create groups, invite users
 - **Publish services**: upload files and publish as hosted feature services
+- **Inspect geoprocessing tools**: list GP tasks and inspect parameter schemas before execution
 - **Run geoprocessing**: execute synchronous and asynchronous GP tasks
+- **Export map images**: render MapServer/FeatureServer layers as JPG/PNG/GIF/PDF/SVG
 - **Portal admin**: system info, license management, usage statistics
 - **Batch operations**: bulk delete, share, and update multiple items
 - **Health check** portal system status (requires admin privileges)
@@ -128,6 +145,13 @@ User: Search for all feature services in my portal
 Agent: [calls connect_portal, then search_content with item_type="Feature Service"]
 ```
 
+### Inspect a Layer's Full Schema
+
+```
+User: Show me the field schema of the infrastructure layer
+Agent: [calls list_layers to find the layer, then describe_layer to get fields, domains, relationships]
+```
+
 ### Query a Layer
 
 ```
@@ -135,11 +159,11 @@ User: Show me the first 10 parcels from the cadastral layer
 Agent: [calls list_layers to find the parcel layer, then query_features with limit=10]
 ```
 
-### Audit Users
+### Inspect a GP Tool Before Running
 
 ```
-User: Who are the administrators in our portal?
-Agent: [calls list_users, filters by role]
+User: What parameters does the buffer analysis tool expect?
+Agent: [calls get_gp_task_info with the GP service URL to inspect parameter schemas]
 ```
 
 ### Add Features
@@ -174,7 +198,7 @@ Agent: [calls upload_item to upload the .zip, then publish_from_item to create t
 
 ```
 User: Run the buffer analysis on the parcels layer with a 100m distance
-Agent: [calls execute_gp_task with the GP service URL and input parameters]
+Agent: [calls get_gp_task_info to inspect parameters, then execute_gp_task with the right inputs]
 ```
 
 ### Bulk Operations
@@ -191,17 +215,18 @@ User: How many licenses do we have left?
 Agent: [calls list_licenses to show license allocation and usage]
 ```
 
-## Available Tools
+## Available Tools (34)
 
-### Phase 1: Read-only (v0.1)
+### Phase 1: Discovery & Inspection (v0.1)
 
 | Tool | Description |
 |------|-------------|
-| `connect_portal` | Authenticate with the portal (auto, token, client_credentials, or OAuth2) |
+| `connect_portal` | Authenticate with the portal (auto, token, username/password, client_credentials, or OAuth2) |
 | `search_content` | Search items by keyword, type, and owner |
 | `get_item_details` | Get detailed metadata for a specific item |
-| `list_layers` | List layers in a feature/map service |
-| `query_features` | Query features with filters and pagination |
+| `list_layers` | List layers in a feature/map service with geometry types and counts |
+| `describe_layer` | Get full layer schema: fields, types, domains, subtypes, relationships, extent, renderer |
+| `query_features` | Query features with attribute/spatial filters and pagination |
 | `list_users` | List portal users with roles and status |
 | `list_groups` | List portal groups with access levels |
 | `portal_health` | Check portal health and system status |
@@ -229,10 +254,11 @@ Agent: [calls list_licenses to show license allocation and usage]
 | `upload_item` | Upload a local file (CSV, Shapefile, etc.) to portal content |
 | `publish_from_item` | Publish an uploaded item as a hosted feature service |
 | `create_service` | Create an empty hosted feature service with schema |
-| `export_map_image` | Export a MapServer/FeatureServer layer as JPG/PNG/GIF/PDF/SVG |
+| `get_gp_task_info` | Inspect GP tool schemas — list tasks or view parameter definitions before execution |
 | `execute_gp_task` | Run a synchronous geoprocessing task |
 | `submit_gp_job` | Submit an async GP job and get a job ID for polling |
 | `get_gp_job_status` | Check status of a running async geoprocessing job |
+| `export_map_image` | Export a MapServer/FeatureServer layer as JPG/PNG/GIF/PDF/SVG |
 | `portal_system_info` | Get portal version, platform, and system info (admin) |
 | `list_licenses` | Get license information and assignments (admin) |
 | `portal_usage` | Get portal usage statistics: users, API calls, storage (admin) |

@@ -1067,8 +1067,251 @@ class ArcGISClient:
         return result or {"error": "Service creation failed"}
 
     # ------------------------------------------------------------------
+    # Layer Metadata
+    # ------------------------------------------------------------------
+
+    def describe_layer(
+        self,
+        service_url: str,
+        layer_id: int = 0,
+    ) -> dict[str, Any]:
+        """Get detailed metadata for a specific layer.
+
+        Fetches field schemas, geometry type, extent, editing capabilities,
+        supported operations, relationships, and other layer properties
+        from the ArcGIS REST API layer endpoint.
+
+        Reference:
+            https://developers.arcgis.com/rest/services-reference/enterprise/layer/
+            https://developers.arcgis.com/rest/services-reference/enterprise/map-server/layer/
+
+        Args:
+            service_url: The feature service or map service URL
+                (e.g. 'https://host/arcgis/rest/services/MyService/FeatureServer').
+            layer_id: The layer ID within the service (default 0).
+
+        Returns:
+            Dict with layer metadata including fields, geometry, extent,
+            editing info, and supported operations.
+        """
+        url = service_url.rstrip("/") + f"/{layer_id}?f=json"
+        if self.token:
+            url += f"&token={self.token}"
+
+        try:
+            resp = self._session.get(url, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            if "error" in data:
+                return {"error": data["error"]}
+
+            # Extract structured metadata
+            result: dict[str, Any] = {
+                "id": data.get("id"),
+                "name": data.get("name", ""),
+                "type": data.get("type", ""),
+                "description": data.get("description", ""),
+                "geometry_type": data.get("geometryType", ""),
+            }
+
+            # Fields
+            fields = data.get("fields", [])
+            result["fields"] = [
+                {
+                    "name": f.get("name", ""),
+                    "alias": f.get("alias", ""),
+                    "type": f.get("type", ""),
+                    "length": f.get("length"),
+                    "nullable": f.get("nullable", True),
+                    "editable": f.get("editable", True),
+                    "default_value": f.get("defaultValue"),
+                    "domain": f.get("domain"),
+                }
+                for f in fields
+            ]
+
+            # Edit info
+            edit_info = data.get("editingInfo", {})
+            result["editing_info"] = {
+                "supports_add": data.get("supportsAdd", False),
+                "supports_update": data.get("supportsUpdate", False),
+                "supports_delete": data.get("supportsDelete", False),
+                "supportsrollback_on_failure": data.get(
+                    "supportsRollbackOnFailureParameter", False
+                ),
+                "last_edit_date": _epoch_to_str(
+                    edit_info.get("lastEditDate")
+                ),
+            }
+
+            # Extent
+            extent = data.get("extent")
+            if extent:
+                sr = extent.get("spatialReference", {})
+                result["extent"] = {
+                    "xmin": extent.get("xmin"),
+                    "ymin": extent.get("ymin"),
+                    "xmax": extent.get("xmax"),
+                    "ymax": extent.get("ymax"),
+                    "spatial_reference": sr.get("wkid", sr.get("wkt", "")),
+                }
+
+            # Max record count
+            result["max_record_count"] = data.get("maxRecordCount", 0)
+
+            # Supports pagination
+            result["supports_pagination"] = data.get(
+                "supportsPagination", False
+            )
+
+            # Drawing info (renderer)
+            drawing_info = data.get("drawingInfo")
+            if drawing_info:
+                renderer = drawing_info.get("renderer", {})
+                result["renderer"] = {
+                    "type": renderer.get("type", ""),
+                    "label": renderer.get("label", ""),
+                }
+
+            # Relationships
+            relationships = data.get("relationships", [])
+            if relationships:
+                result["relationships"] = [
+                    {
+                        "id": r.get("id"),
+                        "name": r.get("name", ""),
+                        "related_table_id": r.get("relatedTableId"),
+                        "cardinality": r.get("cardinality", ""),
+                        "key_field": r.get("keyField", ""),
+                    }
+                    for r in relationships
+                ]
+
+            # Subtypes
+            subtypes = data.get("subtypes", [])
+            if subtypes:
+                result["subtypes"] = [
+                    {
+                        "code": s.get("code"),
+                        "name": s.get("name", ""),
+                    }
+                    for s in subtypes
+                ]
+
+            # Domains
+            domains = data.get("domains", [])
+            if domains:
+                result["domains"] = [
+                    {
+                        "name": d.get("name", ""),
+                        "type": d.get("type", ""),
+                        "field_name": d.get("fieldName", ""),
+                    }
+                    for d in domains
+                ]
+
+            return result
+
+        except requests.exceptions.RequestException as e:
+            logger.error("describe_layer failed: %s", e)
+            return {"error": str(e)}
+        except json.JSONDecodeError:
+            return {"error": "Non-JSON response from service"}
+
+    # ------------------------------------------------------------------
     # Geoprocessing (Phase 3)
     # ------------------------------------------------------------------
+
+    def get_gp_task_info(
+        self,
+        gp_url: str,
+    ) -> dict[str, Any]:
+        """Get metadata for a geoprocessing service or specific task.
+
+        When given a GPServer URL (ending in /GPServer), lists all available
+        tasks. When given a task-specific URL (ending in /GPServer/TaskName),
+        returns the detailed parameter schema for that task.
+
+        Reference:
+            https://developers.arcgis.com/rest/services-reference/enterprise/gp-server/
+            https://developers.arcgis.com/rest/services-reference/enterprise/gp-task/
+
+        Args:
+            gp_url: The GP service REST endpoint. Can be:
+                - GPServer root: 'https://host/arcgis/rest/services/MyGP/GPServer'
+                - Specific task: 'https://host/arcgis/rest/services/MyGP/GPServer/MyTask'
+
+        Returns:
+            Dict with task list or detailed parameter schema.
+        """
+        url = gp_url.rstrip("/") + "?f=json"
+        if self.token:
+            url += f"&token={self.token}"
+
+        try:
+            resp = self._session.get(url, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            if "error" in data:
+                return {"error": data["error"]}
+
+            # Check if this is a task-specific URL or GPServer root
+            # GPServer root has a 'tasks' array; task-specific has 'parameters'
+            if "parameters" in data:
+                # This is a specific GP task
+                return self._parse_gp_task(data, gp_url)
+            elif "tasks" in data:
+                # GPServer root — list all tasks
+                tasks = data["tasks"]
+                result: dict[str, Any] = {
+                    "name": data.get("serviceName", ""),
+                    "description": data.get("description", ""),
+                    "tasks": [],
+                }
+                for task in tasks:
+                    task_name = task.get("name", "")
+                    result["tasks"].append({
+                        "name": task_name,
+                        "display_name": task.get("displayName", ""),
+                        "task_url": gp_url.rstrip("/") + f"/{task_name}",
+                    })
+                return result
+            else:
+                return {"error": "Unrecognized GP service response format"}
+
+        except requests.exceptions.RequestException as e:
+            logger.error("get_gp_task_info failed: %s", e)
+            return {"error": str(e)}
+        except json.JSONDecodeError:
+            return {"error": "Non-JSON response from GP service"}
+
+    def _parse_gp_task(self, data: dict[str, Any], gp_url: str) -> dict[str, Any]:
+        """Parse a single GP task's metadata into a structured dict."""
+        result: dict[str, Any] = {
+            "name": data.get("name", ""),
+            "display_name": data.get("displayName", ""),
+            "description": data.get("description", ""),
+            "help_url": data.get("helpUrl", ""),
+            "execution_type": data.get(
+                "executionType", "esriExecutionTypeSynchronous"
+            ),
+            "category": data.get("category", ""),
+            "parameters": [],
+        }
+
+        for param in data.get("parameters", []):
+            p: dict[str, Any] = {
+                "name": param.get("name", ""),
+                "display_name": param.get("displayName", ""),
+                "data_type": param.get("dataType", ""),
+                "direction": param.get("direction", ""),
+                "default_value": param.get("defaultValue"),
+                "parameter_type": param.get("parameterType", ""),
+                "category": param.get("category", ""),
+            }
+            result["parameters"].append(p)
+
+        return result
 
     def execute_gp_task(
         self,

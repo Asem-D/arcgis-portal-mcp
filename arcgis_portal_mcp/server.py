@@ -490,6 +490,63 @@ def list_layers(item_id: str) -> dict[str, Any]:
 
 
 @mcp.tool()
+def describe_layer(
+    service_url: str,
+    layer_id: int = 0,
+) -> dict[str, Any]:
+    """Get detailed metadata for a specific layer.
+
+    Returns field schemas (names, types, domains, constraints), geometry type,
+    extent, editing capabilities, relationships, subtypes, and renderer info.
+    Use this after list_layers to understand a layer's full schema before
+    querying or editing features.
+
+    Args:
+        service_url: Feature service or map service URL
+            (e.g. "https://host/arcgis/rest/services/MyService/FeatureServer").
+            Can also be taken from the list_layers result.
+        layer_id: Layer ID within the service (default 0).
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    result = client.describe_layer(service_url, layer_id)
+    if "error" in result:
+        return {"status": "error", "error": result["error"]}
+    return {"status": "ok", **result}
+
+
+@mcp.tool()
+def get_gp_task_info(
+    gp_service_url: str,
+) -> dict[str, Any]:
+    """Get metadata for a geoprocessing service or specific task.
+
+    When given a GPServer root URL, lists all available tasks.
+    When given a specific task URL, returns the full parameter schema
+    including data types, directions, default values, and whether
+    parameters are required. Use this before execute_gp_task or
+    submit_gp_job to understand what parameters to pass.
+
+    Args:
+        gp_service_url: The GP service REST endpoint. Can be:
+            - GPServer root: 'https://host/arcgis/rest/services/MyGP/GPServer'
+              (lists all tasks)
+            - Specific task: 'https://host/arcgis/rest/services/MyGP/GPServer/MyTask'
+              (shows parameter schema)
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    result = client.get_gp_task_info(gp_service_url)
+    if "error" in result:
+        return {"status": "error", "error": result["error"]}
+    return {"status": "ok", **result}
+
+
+@mcp.tool()
 def query_features(
     item_id: str,
     layer_id: int = 0,
