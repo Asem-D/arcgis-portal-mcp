@@ -7,6 +7,8 @@ with Claude Desktop, Cursor, VS Code Copilot, and other MCP clients.
 Phase 1 (v0.1): Auth, content search, item details, layer queries, user/group listing.
 Phase 2 (v0.2): Feature CRUD, user/group management, content management.
 Phase 3 (v1.0): Service publishing, geoprocessing, portal admin, batch operations.
+v1.1.0: Username/password auth via generateToken.
+v1.2.0: describe_layer (full layer schema), get_gp_task_info (GP task inspection).
 """
 
 from __future__ import annotations
