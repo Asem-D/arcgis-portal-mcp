@@ -1,54 +1,56 @@
 # arcgis-portal-mcp
 
-The most complete MCP server for ArcGIS. 34 tools that cover the full ArcGIS content lifecycle — from search and inspection through editing, publishing, and administration. Works with **both ArcGIS Enterprise Portal and ArcGIS Online**.
+**v1.2.0.** 34 tools for ArcGIS Enterprise Portal and ArcGIS Online.
 
-Built on the [Model Context Protocol](https://modelcontextprotocol.io) for integration with Claude Desktop, Cursor, VS Code Copilot, and other MCP clients.
+A Model Context Protocol (MCP) server that gives AI assistants direct access to your ArcGIS content. Search, inspect, edit, publish, and admin through natural language.
 
-> **Disclaimer:** This is an independent open-source project. It is not affiliated with, endorsed by, or sponsored by Esri Inc. "ArcGIS" is a registered trademark of Esri.
+Works with Claude Desktop, Cursor, VS Code Copilot, and any MCP-compatible client.
 
-## Why arcgis-portal-mcp?
+> **Disclaimer:** This is an independent open-source project. Not affiliated with, endorsed by, or sponsored by Esri. "ArcGIS" is a registered trademark of Esri.
 
-| Capability | arcgis-portal-mcp | ESRI Beta MCP (2026) |
-|---|---|---|
-| **Tools** | 34 | 10 |
-| **ArcGIS Online** | ✅ Full support | ❌ Enterprise only |
-| **Content CRUD** | ✅ Create, upload, publish, update, delete | ❌ Read-only |
-| **Feature editing** | ✅ Add, update, delete features | ❌ Read-only queries |
-| **User & group management** | ✅ Full admin + governance | ❌ Not available |
-| **Batch operations** | ✅ Bulk delete, share, update | ❌ Single item only |
-| **GP inspection** | ✅ `get_gp_task_info` — inspect schemas before execution | ⚠️ Partial |
-| **Layer schema inspection** | ✅ `describe_layer` — fields, domains, subtypes, relationships | ⚠️ Partial |
-| **Installation** | Zero-install (pip or source) | MCP overlay on Enterprise |
-| **Auth** | 5 methods (auto, token, username/password, client_credentials, OAuth2) | OAuth only |
+## What's new in v1.2.0
+
+The last few releases added tools that were missing for real-world workflows:
+
+- **`describe_layer`**: Get the full schema of any layer: fields, types, domains, subtypes, relationships, extent, renderer. No more guessing what a feature service contains.
+- **`get_gp_task_info`**: Inspect GP tool parameter schemas before you run them.
+- **`export_map_image`**: Render MapServer or FeatureServer layers as JPG, PNG, GIF, PDF, or SVG. Useful for thumbnails, reports, and quick visual checks.
+- **`server_status`**: One call to check if the MCP server is connected and healthy.
+- **`portal_usage`**: Pull usage statistics: active users, API calls, storage breakdown.
+- **`get_item_data`**: Read the actual data inside an item: web map definitions, app configs, feature collections.
+- **`batch_delete_items`**: Delete multiple items in one shot instead of one at a time.
+- **`batch_share_items`**: Share or unshare a list of items with the same audiences.
+- **`batch_update_items`**: Update tags, titles, descriptions, or access on multiple items at once.
+- **`connect_portal`**: Now supports `username_password` auth method (generateToken, user-level permissions).
 
 ## Features
 
-- **Connect** to any ArcGIS Enterprise Portal or ArcGIS Online
-- **Search** for items (feature services, web maps, layers, dashboards)
-- **Inspect** item metadata, tags, and descriptions
-- **List and describe layers** — list layers in a service, then get full schema details (fields, types, domains, subtypes, relationships, extent, renderer)
-- **Query features** with attribute filters, spatial filters, field selection, and pagination
-- **Add, update, and delete features** in hosted feature layers
-- **Manage content**: update item properties, share/unshare, delete items, read web map definitions
-- **Manage users**: list users, get detailed user profiles
-- **Manage groups**: list groups, create groups, invite users
-- **Publish services**: upload files and publish as hosted feature services
-- **Inspect geoprocessing tools**: list GP tasks and inspect parameter schemas before execution
-- **Run geoprocessing**: execute synchronous and asynchronous GP tasks
-- **Export map images**: render MapServer/FeatureServer layers as JPG/PNG/GIF/PDF/SVG
-- **Portal admin**: system info, license management, usage statistics
-- **Batch operations**: bulk delete, share, and update multiple items
-- **Health check** portal system status (requires admin privileges)
+- **Connect** to any ArcGIS Enterprise Portal or ArcGIS Online.
+- **Search** for items: feature services, web maps, layers, dashboards.
+- **Inspect** item metadata, tags, and descriptions.
+- **Describe layers**: full schema with fields, domains, subtypes, relationships, and renderer info.
+- **Query features** with attribute filters, spatial filters, field selection, and pagination.
+- **Add, update, and delete features** in hosted feature layers.
+- **Manage content**: update properties, share/unshare, delete items, read web map definitions.
+- **Manage users**: list users, get detailed profiles.
+- **Manage groups**: list, create, and invite users.
+- **Publish services**: upload files and publish as hosted feature services.
+- **Inspect GP tools**: list tasks and view parameter schemas before execution.
+- **Run geoprocessing**: execute synchronous and asynchronous GP tasks.
+- **Export map images**: render layers as JPG/PNG/GIF/PDF/SVG.
+- **Portal admin**: system info, license management, usage statistics.
+- **Batch operations**: bulk delete, share, and update multiple items.
+- **Health check**: portal system status (requires admin privileges).
 
 ## Design Principles
 
-- **No `arcgis` Python package dependency**: uses raw REST API calls via `requests` so you don't need to install the `arcgis` package
-- **Works with Enterprise Portal AND ArcGIS Online**: same tools, same API
-- **Multiple auth methods**: token, username/password (generateToken), client_credentials, and OAuth2
-- **Auto-connect**: reads `.env` file on startup, no manual auth needed per session
-- **2FA-friendly**: works with Enterprise portals that require two-factor authentication (client_credentials, no browser)
-- **Self-signed cert friendly**: handles Enterprise portals with self-signed certificates
-- **Hardened**: SQL injection validation on WHERE clauses, XSS protection in OAuth callbacks, automatic retry with exponential backoff on transient failures
+- **No `arcgis` Python package dependency**: uses raw REST API calls via `requests`, so you don't need to fight with Esri's Python SDK.
+- **Works with Enterprise Portal AND ArcGIS Online**: same tools, same API.
+- **Multiple auth methods**: token, username/password, client_credentials, and OAuth2.
+- **Auto-connect**: reads your `.env` file on startup, no manual auth needed per session.
+- **2FA-friendly**: works with Enterprise portals that require two-factor authentication.
+- **Self-signed cert friendly**: handles Enterprise portals with self-signed certificates.
+- **Hardened**: SQL injection validation on WHERE clauses, XSS protection in OAuth callbacks, automatic retry with exponential backoff.
 
 ## Installation
 
@@ -217,7 +219,7 @@ Agent: [calls list_licenses to show license allocation and usage]
 
 ## Available Tools (34)
 
-### Phase 1: Discovery & Inspection (v0.1)
+### Discovery and Inspection
 
 | Tool | Description |
 |------|-------------|
@@ -232,7 +234,7 @@ Agent: [calls list_licenses to show license allocation and usage]
 | `portal_health` | Check portal health and system status |
 | `server_status` | Check MCP server connection state |
 
-### Phase 2: Feature CRUD, User/Group & Content Management (v0.2)
+### Feature CRUD, User/Group and Content Management
 
 | Tool | Description |
 |------|-------------|
@@ -247,14 +249,14 @@ Agent: [calls list_licenses to show license allocation and usage]
 | `share_item` | Share/unshare an item with everyone, org, or specific groups |
 | `get_item_data` | Read item data (web map JSON, app config, feature collections) |
 
-### Phase 3: Publishing, Geoprocessing, Admin & Batch (v1.0)
+### Publishing, Geoprocessing, Admin and Batch
 
 | Tool | Description |
 |------|-------------|
 | `upload_item` | Upload a local file (CSV, Shapefile, etc.) to portal content |
 | `publish_from_item` | Publish an uploaded item as a hosted feature service |
 | `create_service` | Create an empty hosted feature service with schema |
-| `get_gp_task_info` | Inspect GP tool schemas — list tasks or view parameter definitions before execution |
+| `get_gp_task_info` | Inspect GP tool schemas: list tasks or view parameter definitions before execution |
 | `execute_gp_task` | Run a synchronous geoprocessing task |
 | `submit_gp_job` | Submit an async GP job and get a job ID for polling |
 | `get_gp_job_status` | Check status of a running async geoprocessing job |
@@ -276,11 +278,24 @@ Agent: [calls list_licenses to show license allocation and usage]
 | **Client Credentials** | No browser needed, no 2FA | App-level only (no user identity) |
 | **OAuth2** | Full user permissions, 14-day tokens | Opens browser, blocks for ~2 min |
 
-**Recommendation for Enterprise portals with 2FA:** Use `auto` (`.env` with `client_credentials`). Token auth won't work because 2FA blocks token generation. The `client_credentials` flow uses app-level OAuth2, no browser, no 2FA, no user interaction.
+**Enterprise portals with 2FA:** Use `auto` (`.env` with `client_credentials`). Token auth won't work because 2FA blocks token generation. The `client_credentials` flow uses app-level OAuth2, no browser, no 2FA, no user interaction.
 
-**For ArcGIS Online or portals without 2FA:** Username/password auth via `generateToken` is the fastest for MCP. Place `username` and `password` in your `.env` file for auto-connect on startup.
+**ArcGIS Online or portals without 2FA:** Username/password auth via `generateToken` is the fastest for MCP. Put `username` and `password` in your `.env` file for auto-connect on startup.
 
-**For full user permissions:** Use OAuth2 once to get a long-lived token, then pass it directly.
+**Full user permissions:** Use OAuth2 once to get a long-lived token, then pass it directly.
+
+## What's Next
+
+Here's what we're working on for upcoming releases:
+
+- **`describe_portal`**: A comprehensive portal overview tool that gives you organization details, user counts, storage, and licensing in a single call.
+- **`portal_storage_report`**: Detailed breakdown of storage usage by item type, owner, and age.
+- **`batch_publish`**: Upload and publish multiple files in one operation.
+- **`service_health_check`**: Validate that all feature services in your portal are responding, have correct schemas, and aren't hitting query limits.
+- **`OAuth2 token refresh`**: Automatic token refresh so you never get logged out mid-session.
+- **`QGIS integration`**: A companion skill that lets you push/pull layers between QGIS Desktop and your portal through the MCP server.
+
+If any of these would solve a problem you're facing, open an issue and let us know. We prioritize based on real-world needs.
 
 ## Development
 

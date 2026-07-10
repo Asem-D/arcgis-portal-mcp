@@ -1659,7 +1659,13 @@ def arcgis_rest_guide() -> str:
 - `/content/users/{owner}/publish`, Publish item as feature service (POST)
 - `/content/users/{owner}/createService`, Create hosted feature service (POST)
 
-## Geoprocessing
+## Layer Metadata (describe_layer)
+- `{service_url}/{layerId}?f=json`, Get full layer schema (fields, types, domains, relationships, extent, renderer)
+- Use this before query/add/update to understand the field names, data types, and editing capabilities
+
+## Geoprocessing (get_gp_task_info)
+- `{gp_service_url}?f=json`, GPServer root — lists all available tasks
+- `{gp_service_url}/{taskName}?f=json`, Specific task — returns parameter schema (name, dataType, direction, defaultValue)
 - `{gp_service_url}/execute`, Synchronous GP task (POST)
 - `{gp_service_url}/submitJob`, Async GP job submission (POST)
 - `{gp_service_url}/jobs/{jobId}`, Check async job status (GET)
