@@ -293,7 +293,6 @@ Here's what we're working on for upcoming releases:
 - **`batch_publish`**: Upload and publish multiple files in one operation.
 - **`service_health_check`**: Validate that all feature services in your portal are responding, have correct schemas, and aren't hitting query limits.
 - **`OAuth2 token refresh`**: Automatic token refresh so you never get logged out mid-session.
-- **`QGIS integration`**: A companion skill that lets you push/pull layers between QGIS Desktop and your portal through the MCP server.
 
 If any of these would solve a problem you're facing, open an issue and let us know. We prioritize based on real-world needs.
 
