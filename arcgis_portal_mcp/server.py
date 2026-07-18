@@ -95,7 +95,8 @@ def _load_env() -> dict[str, str]:
     env_vars: dict[str, str] = {}
 
     # Look for .env in the package directory (next to server.py)
-    env_path = Path(__file__).parent.parent / ".env"
+    # Use resolve() so relative __file__ paths (from python -m) work correctly
+    env_path = Path(__file__).resolve().parent.parent / ".env"
     if not env_path.exists():
         # Also check current working directory
         env_path = Path.cwd() / ".env"
@@ -125,11 +126,20 @@ def _auto_connect() -> bool:
     """Auto-connect using credentials from .env file.
 
     Tries in order:
+    0. Reuse existing connection if client is already connected
     1. username + password -> generateToken (user-level, full permissions)
     2. client_id + client_secret -> client_credentials (app-level, limited)
 
-    Returns True if connection succeeded, False otherwise.
+    Returns True if connection succeeded or already connected, False otherwise.
     """
+    client = _get_client()
+
+    # If already connected, reuse existing connection (check FIRST to avoid
+    # unnecessary .env loading and to survive env-path quirks on some hosts)
+    if client.is_connected:
+        logger.info("Auto-connect: reusing existing connection as %s", client.username)
+        return True
+
     env = _load_env()
 
     portal_url = env.get("portal_url") or os.environ.get("PORTAL_URL")
@@ -141,8 +151,6 @@ def _auto_connect() -> bool:
     if not portal_url:
         logger.info("Auto-connect skipped: no portal_url in .env")
         return False
-
-    client = _get_client()
 
     # Try username/password first (user-level token)
     if username and password:
