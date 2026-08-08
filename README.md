@@ -1,6 +1,6 @@
 # arcgis-portal-mcp
 
-**v1.6.0.** 42 tools for ArcGIS Enterprise Portal and ArcGIS Online.
+**v1.7.0.** 53 tools for ArcGIS Enterprise Portal and ArcGIS Online.
 
 A Model Context Protocol (MCP) server that gives AI assistants direct access to your ArcGIS content. Search, inspect, edit, publish, and admin through natural language.
 
@@ -8,7 +8,14 @@ Works with Claude Desktop, Cursor, VS Code Copilot, and any MCP-compatible clien
 
 > **Disclaimer:** This is an independent open-source project. Not affiliated with, endorsed by, or sponsored by Esri. "ArcGIS" is a registered trademark of Esri.
 
-## What's new in v1.6.0
+## What's new in v1.7.0
+
+- **Webhooks**: list, create, update, delete, and test organization webhooks for portal automation
+- **Logs**: query and clean portal logs with level/source/time filters
+- **Organization settings**: read and update portal configuration
+- **Folders**: create and list content folders for better item organization
+
+### What's new in v1.6.0
 
 - **Configurable TLS verification**: certificate verification is now ON by default; set `MCP_TLS_VERIFY=false` for self-signed Enterprise certs
 - **Scoped allowlists**: restrict which portals, owners, groups, and service URLs the server can access via `MCP_ALLOWED_*` env vars
@@ -228,7 +235,7 @@ User: How many licenses do we have left?
 Agent: [calls list_licenses to show license allocation and usage]
 ```
 
-## Available Tools (42)
+## Available Tools (53)
 
 ### Discovery and Inspection
 
@@ -259,6 +266,8 @@ Agent: [calls list_licenses to show license allocation and usage]
 | `delete_item` | Delete an item from the portal |
 | `share_item` | Share/unshare an item with everyone, org, or specific groups |
 | `get_item_data` | Read item data (web map JSON, app config, feature collections) |
+| `create_folder` | Create a content folder for organizing items |
+| `list_folders` | List content folders for a user |
 
 ### Publishing, Geoprocessing, Admin and Batch
 
@@ -275,6 +284,8 @@ Agent: [calls list_licenses to show license allocation and usage]
 | `portal_system_info` | Get portal version, platform, and system info (admin) |
 | `list_licenses` | Get license information and assignments (admin) |
 | `portal_usage` | Get portal usage statistics: users, API calls, storage (admin) |
+| `get_org_settings` | Get organization settings (admin) |
+| `update_org_settings` | Update organization settings (admin) |
 | `batch_delete_items` | Delete multiple items at once |
 | `batch_share_items` | Share/unshare multiple items with the same audiences |
 | `batch_update_items` | Update properties of multiple items at once |
@@ -283,6 +294,18 @@ Agent: [calls list_licenses to show license allocation and usage]
 | `scan_service_dependencies` | Scan feature service dependencies: broken links, missing sources |
 | `analyze_item_impact` | Analyze item impact: what breaks if an item is deleted |
 | `get_usage_analytics` | Get portal usage analytics: API calls, active users, storage trends |
+
+### Webhooks and Logs (v1.7.0)
+
+| Tool | Description |
+|------|-------------|
+| `list_webhooks` | List all organization webhooks |
+| `create_webhook` | Create a new organization webhook with event triggers |
+| `update_webhook` | Update webhook properties (name, URL, triggers, active state) |
+| `delete_webhook` | Delete a webhook by ID |
+| `test_webhook` | Send a test payload to verify webhook connectivity |
+| `query_logs` | Query portal logs with level, source, and time filters |
+| `clean_logs` | Delete portal logs older than a specified time |
 
 ## Authentication Methods
 
@@ -336,10 +359,11 @@ Operations targeting resources outside the allowlist are rejected with a clear e
 
 Here's what we're working on for upcoming releases:
 
-- **`describe_portal`**: A comprehensive portal overview tool that gives you organization details, user counts, storage, and licensing in a single call.
-- **`portal_storage_report`**: Detailed breakdown of storage usage by item type, owner, and age.
-- **`batch_publish`**: Upload and publish multiple files in one operation.
-- **`OAuth2 token refresh`**: Automatic token refresh so you never get logged out mid-session.
+- **Collaboration management**: list, sync, and manage distributed collaborations (v1.8.0)
+- **Role privilege management**: get and set role privileges (v1.8.0)
+- **Scheduled tasks**: list and filter user scheduled tasks with `taskState` (v1.8.0)
+- **Server federation**: list, validate, federate, and unfederate servers (v1.9.0)
+- **Feature service sync**: createReplica, offline workflows (v2.0.0)
 
 If any of these would solve a problem you're facing, [open an issue](https://github.com/Asem-D/arcgis-portal-mcp/issues) and let us know. We prioritize based on real-world needs.
 

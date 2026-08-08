@@ -9,10 +9,12 @@ Phase 2 (v0.2): Feature CRUD, user/group management, content management.
 Phase 3 (v1.0): Service publishing, geoprocessing, portal admin, batch operations.
 v1.1.0: Username/password auth via generateToken.
 v1.2.0: describe_layer (full layer schema), get_gp_task_info (GP task inspection).
+v1.7.0: Webhooks, logs, org settings, folders.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
@@ -2109,6 +2111,331 @@ def get_usage_analytics(
         if "error" in result:
             return {"status": "error", "error": result["error"]}
         return {"status": "ok", "result": result}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# =========================================================================
+# v1.7.0: Webhooks, Logs, Org Settings, Folders
+# =========================================================================
+
+
+@mcp.tool()
+def list_webhooks() -> dict[str, Any]:
+    """List all organization webhooks.
+
+    Shows webhook name, URL, active status, and event triggers.
+    Requires portal admin privileges.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    try:
+        webhooks = client.list_webhooks()
+        return {
+            "status": "ok",
+            "count": len(webhooks),
+            "webhooks": webhooks,
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def create_webhook(
+    name: str,
+    hook_url: str,
+    change_types: str = "",
+    payload_format: str = "json",
+    secret: str = "",
+    active: bool = True,
+    tags: str = "",
+) -> dict[str, Any]:
+    """Create a new organization webhook.
+
+    Requires portal admin privileges.
+
+    Args:
+        name: Webhook name.
+        hook_url: URL to receive POST payloads.
+        change_types: Comma-separated event triggers (e.g.
+            "addItem,deleteItem"). Leave empty for all changes.
+        payload_format: "json" or "form".
+        secret: Shared secret for HMAC signature verification.
+        active: Whether webhook is active on creation.
+        tags: Comma-separated tags.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    try:
+        ct = [t.strip() for t in change_types.split(",") if t.strip()] or None
+        result = client.create_webhook(
+            name=name,
+            hook_url=hook_url,
+            change_types=ct,
+            payload_format=payload_format,
+            secret=secret,
+            active=active,
+            tags=tags,
+        )
+        if "error" in result:
+            return {"status": "error", "error": result["error"]}
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def update_webhook(
+    webhook_id: int,
+    name: str = "",
+    hook_url: str = "",
+    change_types: str = "",
+    payload_format: str = "",
+    active: bool | None = None,
+    tags: str = "",
+) -> dict[str, Any]:
+    """Update an existing organization webhook.
+
+    Only non-empty parameters are applied. Requires admin privileges.
+
+    Args:
+        webhook_id: ID of the webhook to update.
+        name: New name.
+        hook_url: New URL.
+        change_types: New comma-separated event triggers.
+        payload_format: New format ("json" or "form").
+        active: Set True to enable, False to disable.
+        tags: New comma-separated tags.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    try:
+        ct = [t.strip() for t in change_types.split(",") if t.strip()] or None
+        result = client.update_webhook(
+            webhook_id=webhook_id,
+            name=name,
+            hook_url=hook_url,
+            change_types=ct,
+            payload_format=payload_format,
+            active=active,
+            tags=tags,
+        )
+        if "error" in result:
+            return {"status": "error", "error": result["error"]}
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def delete_webhook(webhook_id: int) -> dict[str, Any]:
+    """Delete a webhook by ID.
+
+    Requires portal admin privileges.
+
+    Args:
+        webhook_id: ID of the webhook to delete.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    try:
+        result = client.delete_webhook(webhook_id)
+        if "error" in result:
+            return {"status": "error", "error": result["error"]}
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def test_webhook(webhook_id: int) -> dict[str, Any]:
+    """Send a test payload to a webhook.
+
+    Sends a sample event to the webhook URL to verify connectivity.
+    Requires admin privileges.
+
+    Args:
+        webhook_id: ID of the webhook to test.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    try:
+        result = client.test_webhook(webhook_id)
+        if "error" in result:
+            return {"status": "error", "error": result["error"]}
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def query_logs(
+    level: str = "WARNING",
+    source: str = "",
+    start_time: str = "",
+    end_time: str = "",
+    max_records: int = 100,
+) -> dict[str, Any]:
+    """Query portal logs.
+
+    Requires portal admin privileges. Returns log entries filtered by
+    level, source, and time range.
+
+    Args:
+        level: Minimum log level: DEBUG, INFO, WARNING, SEVERE, CRITICAL.
+        source: Filter by source (e.g. "PORTAL", "SERVER").
+        start_time: ISO 8601 or epoch ms. Default: last 24 hours.
+        end_time: ISO 8601 or epoch ms. Default: now.
+        max_records: Max entries to return (default 100, max 1000).
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    try:
+        result = client.query_logs(
+            level=level,
+            source=source,
+            start_time=start_time,
+            end_time=end_time,
+            max_records=min(max_records, 1000),
+        )
+        if "error" in result:
+            return {"status": "error", "error": result["error"]}
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def clean_logs(start_time: str = "") -> dict[str, Any]:
+    """Delete portal logs older than start_time.
+
+    Requires portal admin privileges. Without start_time, deletes all logs.
+    Use with caution.
+
+    Args:
+        start_time: ISO 8601 or epoch ms. Logs before this time are deleted.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    try:
+        result = client.clean_logs(start_time=start_time)
+        if "error" in result:
+            return {"status": "error", "error": result["error"]}
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def get_org_settings() -> dict[str, Any]:
+    """Get organization settings.
+
+    Returns portal configuration: general settings, security policies,
+    sharing defaults, identity store, and more.
+    Requires admin privileges.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    try:
+        result = client.get_org_settings()
+        if "error" in result:
+            return {"status": "error", "error": result["error"]}
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def update_org_settings(
+    settings_json: str,
+) -> dict[str, Any]:
+    """Update organization settings.
+
+    Requires portal admin privileges. Pass a JSON string with the
+    settings to update. Only provided keys are changed.
+
+    Args:
+        settings_json: JSON string of settings to update. Must match
+            the /portals/self/settings schema. Example:
+            '{"allowAnonymousAccess": false}'
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    try:
+        settings = json.loads(settings_json)
+    except json.JSONDecodeError as e:
+        return {"status": "error", "error": f"Invalid JSON: {e}"}
+
+    try:
+        result = client.update_org_settings(settings)
+        if "error" in result:
+            return {"status": "error", "error": result["error"]}
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def create_folder(title: str, owner: str = "") -> dict[str, Any]:
+    """Create a content folder.
+
+    Organizes portal items into folders for better management.
+
+    Args:
+        title: Folder name.
+        owner: Folder owner username. Defaults to connected user.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    try:
+        result = client.create_folder(title=title, owner=owner or None)
+        if "error" in result:
+            return {"status": "error", "error": result["error"]}
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def list_folders(owner: str = "") -> dict[str, Any]:
+    """List content folders for a user.
+
+    Shows folder structure for organizing portal items.
+
+    Args:
+        owner: Username to list folders for. Defaults to connected user.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    try:
+        folders = client.list_folders(owner=owner or None)
+        return {
+            "status": "ok",
+            "count": len(folders),
+            "folders": folders,
+        }
     except Exception as e:
         return {"status": "error", "error": str(e)}
 

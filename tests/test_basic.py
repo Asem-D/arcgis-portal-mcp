@@ -19,7 +19,7 @@ from arcgis_portal_mcp.server import _validate_where_clause, mcp
 
 def test_version():
     """Version should match pyproject.toml."""
-    assert __version__ == "1.6.0"
+    assert __version__ == "1.7.0"
 
 
 def test_client_init():
@@ -47,9 +47,9 @@ def test_client_connect_bad_token():
 
 
 def test_server_tools_count():
-    """Server should expose exactly 42 tools (37 + 5 new in v1.5.0)."""
+    """Server should expose exactly 53 tools (42 + 11 new in v1.7.0)."""
     tool_names = mcp._tool_manager._tools.keys()
-    assert len(list(tool_names)) == 42
+    assert len(list(tool_names)) == 53
 
 
 def test_server_resource_count():

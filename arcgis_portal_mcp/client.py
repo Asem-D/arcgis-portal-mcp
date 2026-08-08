@@ -2500,6 +2500,152 @@ class ArcGISClient:
         except Exception as e:
             return {"error": str(e)}
 
+    # ------------------------------------------------------------------
+    # v1.7.0: Webhooks, Logs, Org Settings, Folders
+    # ------------------------------------------------------------------
+
+    def list_webhooks(self) -> list[dict[str, Any]]:
+        """List all organization webhooks."""
+        data = self._sharing_request("/portals/self/webhooks")
+        if not data or "error" in data:
+            return []
+        return data.get("webhooks", [])
+
+    def create_webhook(
+        self,
+        name: str,
+        hook_url: str,
+        change_types: list[str] | None = None,
+        payload_format: str = "json",
+        secret: str = "",
+        active: bool = True,
+        tags: str = "",
+    ) -> dict[str, Any]:
+        """Create a new organization webhook."""
+        params: dict[str, Any] = {
+            "name": name,
+            "hookUrl": hook_url,
+            "payloadFormat": payload_format,
+            "active": str(active).lower(),
+        }
+        if change_types:
+            params["changeTypes"] = ",".join(change_types)
+        if secret:
+            params["secret"] = secret
+        if tags:
+            params["tags"] = tags
+        return self._sharing_request(
+            "/portals/self/webhooks/add", params=params, method="POST"
+        ) or {"error": "Create webhook failed"}
+
+    def update_webhook(
+        self,
+        webhook_id: int,
+        name: str = "",
+        hook_url: str = "",
+        change_types: list[str] | None = None,
+        payload_format: str = "",
+        active: bool | None = None,
+        tags: str = "",
+    ) -> dict[str, Any]:
+        """Update an existing webhook. Only provided params are changed."""
+        params: dict[str, Any] = {"id": webhook_id}
+        if name:
+            params["name"] = name
+        if hook_url:
+            params["hookUrl"] = hook_url
+        if change_types:
+            params["changeTypes"] = ",".join(change_types)
+        if payload_format:
+            params["payloadFormat"] = payload_format
+        if active is not None:
+            params["active"] = str(active).lower()
+        if tags:
+            params["tags"] = tags
+        return self._sharing_request(
+            f"/portals/self/webhooks/{webhook_id}/update",
+            params=params, method="POST",
+        ) or {"error": f"Update webhook {webhook_id} failed"}
+
+    def delete_webhook(self, webhook_id: int) -> dict[str, Any]:
+        """Delete a webhook by ID."""
+        return self._sharing_request(
+            f"/portals/self/webhooks/{webhook_id}/delete",
+            params={}, method="POST",
+        ) or {"error": f"Delete webhook {webhook_id} failed"}
+
+    def test_webhook(self, webhook_id: int) -> dict[str, Any]:
+        """Send a test payload to a webhook."""
+        return self._sharing_request(
+            f"/portals/self/webhooks/{webhook_id}/test",
+            params={}, method="POST",
+        ) or {"error": f"Test webhook {webhook_id} failed"}
+
+    def query_logs(
+        self,
+        level: str = "WARNING",
+        source: str = "",
+        start_time: str = "",
+        end_time: str = "",
+        max_records: int = 100,
+    ) -> dict[str, Any]:
+        """Query portal logs. Requires admin privileges."""
+        params: dict[str, Any] = {
+            "level": level,
+            "num": str(min(max_records, 1000)),
+        }
+        if source:
+            params["source"] = source
+        if start_time:
+            params["startTime"] = start_time
+        if end_time:
+            params["endTime"] = end_time
+        return self.admin_request("/logs/query", params=params) or {
+            "error": "Log query failed"
+        }
+
+    def clean_logs(self, start_time: str = "") -> dict[str, Any]:
+        """Delete portal logs older than start_time."""
+        params: dict[str, Any] = {}
+        if start_time:
+            params["startTime"] = start_time
+        return self.admin_request(
+            "/logs/clean", params=params, method="POST"
+        ) or {"error": "Log cleanup failed"}
+
+    def get_org_settings(self) -> dict[str, Any]:
+        """Get organization settings."""
+        return self._sharing_request("/portals/self/settings") or {
+            "error": "Failed to get org settings"
+        }
+
+    def update_org_settings(self, settings: dict[str, Any]) -> dict[str, Any]:
+        """Update organization settings."""
+        params: dict[str, Any] = {"settings": json.dumps(settings)}
+        return self._sharing_request(
+            "/portals/self/settings/update", params=params, method="POST"
+        ) or {"error": "Failed to update org settings"}
+
+    def create_folder(self, title: str, owner: str | None = None) -> dict[str, Any]:
+        """Create a content folder."""
+        user = owner or self.username
+        if not user:
+            return {"error": "No owner specified and not connected"}
+        return self._sharing_request(
+            f"/content/users/{user}/createFolder",
+            params={"title": title}, method="POST",
+        ) or {"error": f"Create folder '{title}' failed"}
+
+    def list_folders(self, owner: str | None = None) -> list[dict[str, Any]]:
+        """List content folders for a user."""
+        user = owner or self.username
+        if not user:
+            return []
+        data = self._sharing_request(f"/content/users/{user}")
+        if not data or "error" in data:
+            return []
+        return data.get("folders", [])
+
 
 # ------------------------------------------------------------------
 # OAuth callback handler
