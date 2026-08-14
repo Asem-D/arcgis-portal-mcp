@@ -10,6 +10,7 @@ Phase 3 (v1.0): Service publishing, geoprocessing, portal admin, batch operation
 v1.1.0: Username/password auth via generateToken.
 v1.2.0: describe_layer (full layer schema), get_gp_task_info (GP task inspection).
 v1.7.0: Webhooks, logs, org settings, folders.
+v1.8.0: Collaborations, roles & privileges, scheduled tasks.
 """
 
 from __future__ import annotations
@@ -2537,3 +2538,155 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+@mcp.tool()
+def list_collaborations() -> dict[str, Any]:
+    """List all collaborations the portal participates in.
+
+    Returns collaborations where the portal is host or guest.
+    Requires admin privileges.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    try:
+        collabs = client.list_collaborations()
+        return {"status": "ok", "count": len(collabs), "collaborations": collabs}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def get_collaboration(collaboration_id: str) -> dict[str, Any]:
+    """Get details of a specific collaboration.
+
+    Args:
+        collaboration_id: The collaboration ID.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    try:
+        result = client.get_collaboration(collaboration_id)
+        if "error" in result:
+            return {"status": "error", "error": result["error"]}
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def sync_collaboration(collaboration_id: str, workspace_id: str) -> dict[str, Any]:
+    """Trigger sync for a collaboration workspace.
+
+    Syncs shared content between collaboration partners.
+    Requires admin privileges.
+
+    Args:
+        collaboration_id: The collaboration ID.
+        workspace_id: The workspace ID within the collaboration.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    try:
+        result = client.sync_collaboration(collaboration_id, workspace_id)
+        if "error" in result:
+            return {"status": "error", "error": result["error"]}
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def list_roles(return_privileges: bool = True) -> dict[str, Any]:
+    """List all organization roles.
+
+    Returns built-in and custom roles with their privilege lists.
+    Requires admin privileges.
+
+    Args:
+        return_privileges: If true, include each role's privileges (default true).
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    try:
+        roles = client.list_roles(return_privileges=return_privileges)
+        return {"status": "ok", "count": len(roles), "roles": roles}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def get_role_privileges(role_id: str) -> dict[str, Any]:
+    """Get privileges for a specific role.
+
+    Returns the privilege strings assigned to the role.
+    Requires admin privileges.
+
+    Args:
+        role_id: The role ID (e.g. "iAAAAAAAAAAAAAAA").
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    try:
+        result = client.get_role_privileges(role_id)
+        if "error" in result:
+            return {"status": "error", "error": result["error"]}
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def list_scheduled_tasks(
+    task_type: str = "",
+    user_filter: str = "",
+    active: bool | None = None,
+) -> dict[str, Any]:
+    """List all scheduled tasks in the organization.
+
+    Requires admin privileges. Supports filtering by type, user, and active state.
+
+    Args:
+        task_type: Filter by task type (e.g. "ExecuteNotebook", "ExecuteSceneCook").
+        user_filter: Filter by owner username.
+        active: Filter by active state (true/false). Omit for all.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    try:
+        tasks = client.list_scheduled_tasks(
+            task_type=task_type,
+            user_filter=user_filter,
+            active=active,
+        )
+        return {"status": "ok", "count": len(tasks), "tasks": tasks}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def get_user_scheduled_tasks(username: str) -> dict[str, Any]:
+    """List scheduled tasks for a specific user.
+
+    Args:
+        username: The username to list tasks for.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    try:
+        tasks = client.get_user_scheduled_tasks(username)
+        return {"status": "ok", "count": len(tasks), "tasks": tasks}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}

@@ -1,7 +1,7 @@
 # arcgis-portal-mcp Enhancement Plan
 
 **Date**: August 2026
-**Current version**: v1.7.0 (53 tools)
+**Current version**: v1.8.0 (60 tools)
 **Last updated**: 2026-08-07
 
 ---
@@ -33,10 +33,10 @@
 |---|---|---|---|
 | **Webhooks** | List/Create/Update/Delete/Test webhooks | Portal automation is incomplete without webhook management | `/portals/self/webhooks` | Done (v1.7.0) |
 | **Logs** | Query/Clean/Export logs | Essential for portal health monitoring | `/portals/self/logs/query` | Done (v1.7.0) |
-| **Collaborations** | List/Get/Sync collaborations | Distributed GIS workflows (Enterprise 12.1 enhanced this) | `/portals/self/collaborations` | v1.8.0 |
+| **Collaborations** | List/Get/Sync collaborations | Distributed GIS workflows (Enterprise 12.1 enhanced this) | `/portals/self/collaborations` | Done (v1.8.0) |
 | **Organization Settings** | Get/Update org settings | Configure portal behavior, AI assistants (12.0+), token expiration | `/portals/self/settings` | Done (v1.7.0) |
-| **Role Privileges** | Get/Set role privileges | Manage what users can do | `/portals/self/roles/{roleId}/privileges` | v1.8.0 |
-| **Scheduled Tasks** | List/Get user scheduled tasks (with `taskState` filter, new in Oct 2025) | Monitor automated workflows | `/portals/self/users/{username}/allScheduledTasks` | v1.8.0 |
+| **Role Privileges** | Get/Set role privileges | Manage what users can do | `/portals/self/roles/{roleId}/privileges` | Done (v1.8.0) |
+| **Scheduled Tasks** | List/Get user scheduled tasks (with `taskState` filter, new in Oct 2025) | Monitor automated workflows | `/portals/self/users/{username}/allScheduledTasks` | Done (v1.8.0) |
 
 ### MEDIUM PRIORITY (enhances existing tools)
 
@@ -72,7 +72,7 @@
 | Quarter | Focus | Target Version |
 |---|---|---|
 | **Q3 2026** | Webhooks + Logs + Org Settings + Folders | v1.7.0 ✅ |
-| **Q4 2026** | Collaborations + Role Management + Scheduled Tasks | v1.8.0 |
+| **Q4 2026** | Collaborations + Role Management + Scheduled Tasks | v1.8.0 ✅ |
 | **Q1 2027** | Server Federation + Machines + SSL | v1.9.0 |
 | **Q2 2027** | Feature Service Sync + Item Relationships CRUD + AI Services | v2.0.0 |
 
@@ -92,17 +92,19 @@
 | 10 | `create_folder` | Done |
 | 11 | `list_folders` | Done |
 
-### v1.8.0 (target: Q4 2026) -- PLANNED
+### v1.8.0 (August 2026) -- IMPLEMENTED
 
-| # | Tool | Category | Effort |
-|---|------|----------|--------|
-| 1 | `list_collaborations` | Collaborations | Simple |
-| 2 | `get_collaboration` | Collaborations | Simple |
-| 3 | `sync_collaboration` | Collaborations | Simple |
-| 4 | `list_role_privileges` | Role Management | Medium |
-| 5 | `update_role_privileges` | Role Management | Hard |
-| 6 | `list_scheduled_tasks` | Scheduled Tasks | Simple |
-| 7 | `get_scheduled_task` | Scheduled Tasks | Simple |
+| # | Tool | Status |
+|---|------|--------|
+| 1 | `list_collaborations` | Done |
+| 2 | `get_collaboration` | Done |
+| 3 | `sync_collaboration` | Done |
+| 4 | `list_roles` | Done |
+| 5 | `get_role_privileges` | Done |
+| 6 | `list_scheduled_tasks` | Done |
+| 7 | `get_user_scheduled_tasks` | Done |
+
+### v1.9.0 (target: Q1 2027) -- PLANNED
 
 ### Ongoing Maintenance
 
@@ -132,7 +134,7 @@
 |---|---|---|
 | **Focus** | Location Services (geocoding, routing, elevation) | Portal administration + content management |
 | **Auth** | API key | Username/password, OAuth, client_credentials, token |
-| **Portal mgmt** | No | Yes (53 tools) |
+| **Portal mgmt** | No | Yes (60 tools) |
 | **Feature CRUD** | No | Yes |
 | **Enterprise support** | No (Location Platform only) | Yes (Portal + AGOL) |
 | **Our position** | Complementary | **The only production MCP for portal admin** |

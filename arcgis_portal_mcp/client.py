@@ -2646,6 +2646,93 @@ class ArcGISClient:
             return []
         return data.get("folders", [])
 
+    # ------------------------------------------------------------------
+    # Collaborations (v1.8.0)
+    # ------------------------------------------------------------------
+
+    def list_collaborations(self) -> list[dict[str, Any]]:
+        """List all collaborations the portal participates in."""
+        data = self._sharing_request("/portals/self/collaborations")
+        if not data or "error" in data:
+            return []
+        return data.get("collaborations", [])
+
+    def get_collaboration(self, collaboration_id: str) -> dict[str, Any]:
+        """Get details of a specific collaboration."""
+        data = self._sharing_request(
+            f"/portals/self/collaborations/{collaboration_id}"
+        )
+        if not data:
+            return {"error": f"Collaboration {collaboration_id} not found"}
+        return data
+
+    def sync_collaboration(
+        self, collaboration_id: str, workspace_id: str
+    ) -> dict[str, Any]:
+        """Trigger sync for a collaboration workspace."""
+        return self._sharing_request(
+            f"/portals/self/collaborations/{collaboration_id}"
+            f"/workspaces/{workspace_id}/sync",
+            params={}, method="POST",
+        ) or {"error": f"Sync failed for workspace {workspace_id}"}
+
+    # ------------------------------------------------------------------
+    # Roles & Privileges (v1.8.0)
+    # ------------------------------------------------------------------
+
+    def list_roles(self, return_privileges: bool = True) -> list[dict[str, Any]]:
+        """List organization roles."""
+        params: dict[str, Any] = {"num": 100}
+        if return_privileges:
+            params["returnPrivileges"] = "true"
+        data = self._sharing_request("/portals/self/roles", params=params)
+        if not data or "error" in data:
+            return []
+        return data.get("roles", [])
+
+    def get_role_privileges(self, role_id: str) -> dict[str, Any]:
+        """Get privileges for a specific role."""
+        data = self._sharing_request(
+            f"/portals/self/roles/{role_id}/privileges"
+        )
+        if not data:
+            return {"error": f"Role {role_id} not found"}
+        return data
+
+    # ------------------------------------------------------------------
+    # Scheduled Tasks (v1.8.0)
+    # ------------------------------------------------------------------
+
+    def list_scheduled_tasks(
+        self,
+        task_type: str = "",
+        user_filter: str = "",
+        active: bool | None = None,
+    ) -> list[dict[str, Any]]:
+        """List all scheduled tasks in the organization (admin only)."""
+        params: dict[str, Any] = {}
+        if task_type:
+            params["types"] = task_type
+        if user_filter:
+            params["userFilter"] = user_filter
+        if active is not None:
+            params["active"] = str(active).lower()
+        data = self._sharing_request(
+            "/portals/self/allScheduledTasks", params=params
+        )
+        if not data or "error" in data:
+            return []
+        return data.get("tasks", [])
+
+    def get_user_scheduled_tasks(self, username: str) -> list[dict[str, Any]]:
+        """List scheduled tasks for a specific user."""
+        data = self._sharing_request(
+            f"/community/users/{username}/tasks"
+        )
+        if not data or "error" in data:
+            return []
+        return data.get("tasks", [])
+
 
 # ------------------------------------------------------------------
 # OAuth callback handler
@@ -2692,6 +2779,20 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
 
 
 def _epoch_to_str(epoch_ms: int | float | None) -> str:
+    """Convert epoch milliseconds to readable date string."""
+    if not epoch_ms:
+        return ""
+    try:
+        return datetime.fromtimestamp(epoch_ms / 1000).strftime("%Y-%m-%d %H:%M")
+    except (ValueError, OSError):
+        return str(epoch_ms)
+
+
+def _truncate(text: str | None, max_len: int) -> str:
+    """Truncate text to max_len characters."""
+    if not text:
+        return ""
+    return (text[:max_len] + "...") if len(text) > max_len else text
     """Convert epoch milliseconds to readable date string."""
     if not epoch_ms:
         return ""

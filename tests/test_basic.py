@@ -19,7 +19,7 @@ from arcgis_portal_mcp.server import _validate_where_clause, mcp
 
 def test_version():
     """Version should match pyproject.toml."""
-    assert __version__ == "1.7.0"
+    assert __version__ == "1.8.0"
 
 
 def test_client_init():
@@ -47,9 +47,9 @@ def test_client_connect_bad_token():
 
 
 def test_server_tools_count():
-    """Server should expose exactly 53 tools (42 + 11 new in v1.7.0)."""
+    """Server should expose exactly 60 tools (53 + 7 new in v1.8.0)."""
     tool_names = mcp._tool_manager._tools.keys()
-    assert len(list(tool_names)) == 53
+    assert len(list(tool_names)) == 60
 
 
 def test_server_resource_count():
@@ -1092,6 +1092,129 @@ def test_tool_returns_not_connected_new_tools():
         "scan_service_dependencies": (["some-service-id"], {}),
         "analyze_item_impact": (["some-item-id"], {}),
         "get_usage_analytics": ([], {}),
+    }
+
+    for tool_name, (args, kwargs) in tool_calls.items():
+        func = getattr(srv, tool_name)
+        result = func(*args, **kwargs)
+        assert result.get("status") == "error", f"{tool_name} should return error status"
+        assert "Not connected" in result.get("error", ""), f"{tool_name} error should mention 'Not connected'"
+
+
+# ======================================================================
+# v1.8.0: Collaborations, Roles, Scheduled Tasks
+# ======================================================================
+
+
+def test_client_list_collaborations():
+    """list_collaborations should return list of collaborations."""
+    client = ArcGISClient()
+    client._token = "fake-token"
+
+    with patch.object(client, "_sharing_request", return_value={"collaborations": [{"id": "c1", "name": "Test Collab"}]}):
+        result = client.list_collaborations()
+    assert len(result) == 1
+    assert result[0]["id"] == "c1"
+
+
+def test_client_list_collaborations_empty():
+    """list_collaborations should return empty list on error."""
+    client = ArcGISClient()
+    client._token = "fake-token"
+
+    with patch.object(client, "_sharing_request", return_value={"error": "fail"}):
+        result = client.list_collaborations()
+    assert result == []
+
+
+def test_client_get_collaboration():
+    """get_collaboration should return collaboration details."""
+    client = ArcGISClient()
+    client._token = "fake-token"
+
+    with patch.object(client, "_sharing_request", return_value={"id": "c1", "name": "Test"}):
+        result = client.get_collaboration("c1")
+    assert result["id"] == "c1"
+
+
+def test_client_sync_collaboration():
+    """sync_collaboration should POST to the sync endpoint."""
+    client = ArcGISClient()
+    client._token = "fake-token"
+
+    with patch.object(client, "_sharing_request", return_value={"status": "ok"}) as mock:
+        result = client.sync_collaboration("c1", "w1")
+    mock.assert_called_once()
+    assert "sync" in mock.call_args[0][0]
+
+
+def test_client_list_roles():
+    """list_roles should return roles list."""
+    client = ArcGISClient()
+    client._token = "fake-token"
+
+    with patch.object(client, "_sharing_request", return_value={"roles": [{"id": "r1", "name": "Admin"}]}):
+        result = client.list_roles()
+    assert len(result) == 1
+    assert result[0]["name"] == "Admin"
+
+
+def test_client_get_role_privileges():
+    """get_role_privileges should return privilege list."""
+    client = ArcGISClient()
+    client._token = "fake-token"
+
+    with patch.object(client, "_sharing_request", return_value={"id": "r1", "privileges": ["portal:user:createGroup"]}):
+        result = client.get_role_privileges("r1")
+    assert "privileges" in result
+
+
+def test_client_list_scheduled_tasks():
+    """list_scheduled_tasks should return tasks list."""
+    client = ArcGISClient()
+    client._token = "fake-token"
+
+    with patch.object(client, "_sharing_request", return_value={"tasks": [{"id": "t1", "title": "Notebook Run"}]}):
+        result = client.list_scheduled_tasks()
+    assert len(result) == 1
+
+
+def test_client_list_scheduled_tasks_with_filters():
+    """list_scheduled_tasks should pass filters to the API."""
+    client = ArcGISClient()
+    client._token = "fake-token"
+
+    with patch.object(client, "_sharing_request", return_value={"tasks": []}) as mock:
+        client.list_scheduled_tasks(task_type="ExecuteNotebook", user_filter="admin", active=True)
+    params = mock.call_args[1].get("params", {})
+    assert params.get("types") == "ExecuteNotebook"
+    assert params.get("userFilter") == "admin"
+    assert params.get("active") == "true"
+
+
+def test_client_get_user_scheduled_tasks():
+    """get_user_scheduled_tasks should return tasks for a user."""
+    client = ArcGISClient()
+    client._token = "fake-token"
+
+    with patch.object(client, "_sharing_request", return_value={"tasks": [{"id": "t1"}]}):
+        result = client.get_user_scheduled_tasks("jsmith")
+    assert len(result) == 1
+
+
+# Server tool not-connected tests for v1.8.0 tools
+def test_v18_tools_not_connected():
+    """v1.8.0 tools should return error when not connected."""
+    from arcgis_portal_mcp import server as srv
+
+    tool_calls = {
+        "list_collaborations": ([], {}),
+        "get_collaboration": (["some-id"], {}),
+        "sync_collaboration": (["c1", "w1"], {}),
+        "list_roles": ([], {}),
+        "get_role_privileges": (["r1"], {}),
+        "list_scheduled_tasks": ([], {}),
+        "get_user_scheduled_tasks": (["jsmith"], {}),
     }
 
     for tool_name, (args, kwargs) in tool_calls.items():

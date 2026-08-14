@@ -1,6 +1,6 @@
 # arcgis-portal-mcp
 
-**v1.7.0.** 53 tools for ArcGIS Enterprise Portal and ArcGIS Online.
+**v1.8.0.** 60 tools for ArcGIS Enterprise Portal and ArcGIS Online.
 
 A Model Context Protocol (MCP) server that gives AI assistants direct access to your ArcGIS content. Search, inspect, edit, publish, and admin through natural language.
 
@@ -8,7 +8,13 @@ Works with Claude Desktop, Cursor, VS Code Copilot, and any MCP-compatible clien
 
 > **Disclaimer:** This is an independent open-source project. Not affiliated with, endorsed by, or sponsored by Esri. "ArcGIS" is a registered trademark of Esri.
 
-## What's new in v1.7.0
+## What's new in v1.8.0
+
+- **Collaborations**: list, inspect, and trigger sync for distributed GIS collaborations
+- **Roles & privileges**: list organization roles with their full privilege sets
+- **Scheduled tasks**: list and filter organization-wide or per-user scheduled tasks
+
+### What's new in v1.7.0
 
 - **Webhooks**: list, create, update, delete, and test organization webhooks for portal automation
 - **Logs**: query and clean portal logs with level/source/time filters
@@ -306,6 +312,18 @@ Agent: [calls list_licenses to show license allocation and usage]
 | `test_webhook` | Send a test payload to verify webhook connectivity |
 | `query_logs` | Query portal logs with level, source, and time filters |
 | `clean_logs` | Delete portal logs older than a specified time |
+
+### Collaborations, Roles and Scheduled Tasks (v1.8.0)
+
+| Tool | Description |
+|------|-------------|
+| `list_collaborations` | List all collaborations the portal participates in |
+| `get_collaboration` | Get details of a specific collaboration |
+| `sync_collaboration` | Trigger sync for a collaboration workspace |
+| `list_roles` | List all organization roles with their privileges |
+| `get_role_privileges` | Get privileges for a specific role |
+| `list_scheduled_tasks` | List all scheduled tasks in the organization (admin) |
+| `get_user_scheduled_tasks` | List scheduled tasks for a specific user |
 
 ## Authentication Methods
 

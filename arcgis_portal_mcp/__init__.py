@@ -7,4 +7,4 @@ with Claude Desktop, Cursor, VS Code Copilot, and other MCP clients.
 No dependency on the `arcgis` Python package. Uses raw REST API calls.
 """
 
-__version__ = "1.7.0"  # v1.7.0: webhooks, logs, org settings, folders
+__version__ = "1.8.0"  # v1.8.0: collaborations, roles, scheduled tasks
