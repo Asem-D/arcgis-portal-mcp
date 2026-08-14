@@ -1,7 +1,8 @@
 # arcgis-portal-mcp Enhancement Plan
 
 **Date**: August 2026
-**Current version**: v1.6.0 (42 tools)
+**Current version**: v1.7.0 (53 tools)
+**Last updated**: 2026-08-07
 
 ---
 
@@ -30,12 +31,12 @@
 
 | Category | Missing Endpoint | Why It Matters | API Reference |
 |---|---|---|---|
-| **Webhooks** | List/Create/Update/Delete/Test webhooks | Portal automation is incomplete without webhook management | `/portals/self/webhooks` |
-| **Logs** | Query/Clean/Export logs | Essential for portal health monitoring | `/portals/self/logs/query` |
-| **Collaborations** | List/Get/Sync collaborations | Distributed GIS workflows (Enterprise 12.1 enhanced this) | `/portals/self/collaborations` |
-| **Organization Settings** | Get/Update org settings | Configure portal behavior, AI assistants (12.0+), token expiration | `/portals/self/settings` |
-| **Role Privileges** | Get/Set role privileges | Manage what users can do | `/portals/self/roles/{roleId}/privileges` |
-| **Scheduled Tasks** | List/Get user scheduled tasks (with `taskState` filter, new in Oct 2025) | Monitor automated workflows | `/portals/self/users/{username}/allScheduledTasks` |
+| **Webhooks** | List/Create/Update/Delete/Test webhooks | Portal automation is incomplete without webhook management | `/portals/self/webhooks` | Done (v1.7.0) |
+| **Logs** | Query/Clean/Export logs | Essential for portal health monitoring | `/portals/self/logs/query` | Done (v1.7.0) |
+| **Collaborations** | List/Get/Sync collaborations | Distributed GIS workflows (Enterprise 12.1 enhanced this) | `/portals/self/collaborations` | v1.8.0 |
+| **Organization Settings** | Get/Update org settings | Configure portal behavior, AI assistants (12.0+), token expiration | `/portals/self/settings` | Done (v1.7.0) |
+| **Role Privileges** | Get/Set role privileges | Manage what users can do | `/portals/self/roles/{roleId}/privileges` | v1.8.0 |
+| **Scheduled Tasks** | List/Get user scheduled tasks (with `taskState` filter, new in Oct 2025) | Monitor automated workflows | `/portals/self/users/{username}/allScheduledTasks` | v1.8.0 |
 
 ### MEDIUM PRIORITY (enhances existing tools)
 
@@ -44,7 +45,7 @@
 | **Server Federation** | List/Validate/Federate/Unfederate servers | Enterprise portal management |
 | **Machines** | List machines, machine status | Multi-machine deployment monitoring |
 | **SSL Certificates** | List/Import/Generate certificates | Security management |
-| **Folders** | Create/List user folders | Content organization |
+| **Folders** | Create/List user folders | Content organization | Done (v1.7.0) |
 | **Item Relationships** | Add/Remove relationships (we have explore, but not CRUD) | Manage item dependencies |
 | **Feature Service: createReplica** | Sync support, export with `syncModel:None` | Offline workflows, data distribution |
 | **Export Group Content** | Export as Desktop Style/Solution (12.1+) | Content migration |
@@ -75,14 +76,33 @@
 | **Q1 2027** | Server Federation + Machines + SSL | v1.9.0 |
 | **Q2 2027** | Feature Service Sync + Item Relationships CRUD + AI Services | v2.0.0 |
 
-### v1.7.0 Plan (target: September 2026) -- IMPLEMENTED 2026-08-07
+### v1.7.0 (August 2026) -- IMPLEMENTED
 
-1. **Webhooks tool** (`manage_webhooks`): List, create, update, delete, test portal webhooks
-2. **Logs tool** (`query_logs`): Query portal logs with filters (level, source, time range)
-3. **Org Settings tool** (`get_org_settings`, `update_org_settings`): Read/write portal configuration
-4. **Scheduled Tasks tool** (`list_scheduled_tasks`): List with `taskState` filter (Oct 2025 API)
-5. **Create Folder tool** (`create_folder`): Organize items into folders
-6. **Remove Group Users tool** (`remove_group_users`): Complement to `invite_to_group`
+| # | Tool | Status |
+|---|------|--------|
+| 1 | `list_webhooks` | Done |
+| 2 | `create_webhook` | Done |
+| 3 | `update_webhook` | Done |
+| 4 | `delete_webhook` | Done |
+| 5 | `test_webhook` | Done |
+| 6 | `query_logs` | Done |
+| 7 | `clean_logs` | Done |
+| 8 | `get_org_settings` | Done |
+| 9 | `update_org_settings` | Done |
+| 10 | `create_folder` | Done |
+| 11 | `list_folders` | Done |
+
+### v1.8.0 (target: Q4 2026) -- PLANNED
+
+| # | Tool | Category | Effort |
+|---|------|----------|--------|
+| 1 | `list_collaborations` | Collaborations | Simple |
+| 2 | `get_collaboration` | Collaborations | Simple |
+| 3 | `sync_collaboration` | Collaborations | Simple |
+| 4 | `list_role_privileges` | Role Management | Medium |
+| 5 | `update_role_privileges` | Role Management | Hard |
+| 6 | `list_scheduled_tasks` | Scheduled Tasks | Simple |
+| 7 | `get_scheduled_task` | Scheduled Tasks | Simple |
 
 ### Ongoing Maintenance
 
@@ -112,7 +132,7 @@
 |---|---|---|
 | **Focus** | Location Services (geocoding, routing, elevation) | Portal administration + content management |
 | **Auth** | API key | Username/password, OAuth, client_credentials, token |
-| **Portal mgmt** | No | Yes (42 tools) |
+| **Portal mgmt** | No | Yes (53 tools) |
 | **Feature CRUD** | No | Yes |
 | **Enterprise support** | No (Location Platform only) | Yes (Portal + AGOL) |
 | **Our position** | Complementary | **The only production MCP for portal admin** |
@@ -121,3 +141,17 @@
 - Do NOT compete with Esri MCP on Location Services (geocoding, routing, elevation, static maps) unless explicitly requested
 - Double down on **portal administration** which Esri has no interest in covering via MCP
 - Consider a thin wrapper around Esri's Location Services MCP for users who want both in one server (low effort, high value)
+
+---
+
+## 5. Obsolete / Completed Items
+
+The following were planned or discussed but are already completed or superseded. Listed here for historical reference only.
+
+| Original Plan Item | Actual Outcome |
+|---|---|
+| `manage_webhooks` (single tool) | Split into 5 tools: list/create/update/delete/test_webhook |
+| `list_scheduled_tasks` | Deferred to v1.8.0 |
+| `remove_group_users` | Deferred to v1.8.0 |
+| "Phase 4" (clone_item, create_service, create_group, get_service_dependencies) | Already existed in earlier versions, never needed implementation |
+| v1.6.0 (42 tools) label | Superseded: v1.7.0 shipped with 53 tools |
