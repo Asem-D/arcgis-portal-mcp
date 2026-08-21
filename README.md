@@ -1,6 +1,6 @@
 # arcgis-portal-mcp
 
-**v1.8.0.** 60 tools for ArcGIS Enterprise Portal and ArcGIS Online.
+**v1.9.0.** 60 tools for ArcGIS Enterprise Portal and ArcGIS Online.
 
 A Model Context Protocol (MCP) server that gives AI assistants direct access to your ArcGIS content. Search, inspect, edit, publish, and admin through natural language.
 
@@ -8,7 +8,13 @@ Works with Claude Desktop, Cursor, VS Code Copilot, and any MCP-compatible clien
 
 > **Disclaimer:** This is an independent open-source project. Not affiliated with, endorsed by, or sponsored by Esri. "ArcGIS" is a registered trademark of Esri.
 
-## What's new in v1.8.0
+## What's new in v1.9.0
+
+- **Read-only mode**: block all write/mutating tools via `MCP_READ_ONLY=true` or `--read-only` CLI flag
+- **Tool allowlisting**: restrict which tools the AI client can see and invoke via `MCP_ALLOWED_TOOLS=name1,name2`
+- **Audit logging**: record every tool call to a JSONL file via `MCP_AUDIT_LOG=path`, with automatic sanitization of passwords and tokens
+
+### What's new in v1.8.0
 
 - **Collaborations**: list, inspect, and trigger sync for distributed GIS collaborations
 - **Roles & privileges**: list organization roles with their full privilege sets
@@ -63,7 +69,7 @@ Works with Claude Desktop, Cursor, VS Code Copilot, and any MCP-compatible clien
 - **Auto-connect**: reads your `.env` file on startup, no manual auth needed per session.
 - **2FA-friendly**: works with Enterprise portals that require two-factor authentication.
 - **Self-signed cert friendly**: handles Enterprise portals with self-signed certificates.
-- **Hardened**: SQL injection validation on WHERE clauses, XSS protection in OAuth callbacks, automatic retry with exponential backoff.
+- **Hardened**: SQL injection validation on WHERE clauses, XSS protection in OAuth callbacks, automatic retry with exponential backoff, read-only mode, tool allowlisting, and audit logging.
 - **Scoped allowlists**: optionally restrict which portals, owners, groups, and service URLs the server can access, reducing agent blast radius in production.
 
 ## Installation
@@ -241,7 +247,7 @@ User: How many licenses do we have left?
 Agent: [calls list_licenses to show license allocation and usage]
 ```
 
-## Available Tools (53)
+## Available Tools (60)
 
 ### Discovery and Inspection
 
@@ -373,15 +379,58 @@ MCP_ALLOWED_SERVICE_URLS=https://gis.example.com/portal/sharing/rest/services
 
 Operations targeting resources outside the allowlist are rejected with a clear error message. For batch operations, items outside the owner allowlist are skipped with per-item reporting.
 
+### Read-Only Mode (v1.9.0)
+
+Blocks all write/mutating tools server-side. Useful for evaluation, demos, and environments where the AI should only read data.
+
+```env
+# Via environment variable
+MCP_READ_ONLY=true
+```
+
+```bash
+# Or via CLI flag (overrides env var)
+python -m arcgis_portal_mcp.server --read-only
+```
+
+When active, any tool that creates, updates, or deletes portal content is rejected with a clear error message. Read-only tools (search, query, list, describe) remain fully functional.
+
+### Tool Allowlisting (v1.9.0)
+
+Restricts which tools the AI client can see and invoke. When set, only the named tools are exposed via the MCP protocol.
+
+```env
+# Only expose these 5 tools to the AI
+MCP_ALLOWED_TOOLS=search_content,query_features,list_layers,describe_layer,portal_health
+```
+
+When unset (the default), all 60 tools are available. Tools not on the list are invisible to the AI client and rejected if called directly.
+
+### Audit Logging (v1.9.0)
+
+Records every tool call to a JSONL file for security review and compliance.
+
+```env
+# Log all tool calls to this file
+MCP_AUDIT_LOG=/path/to/audit.jsonl
+```
+
+Each entry contains:
+
+```json
+{"ts": 1723500000.0, "tool": "search_content", "args": {"query": "parcels"}, "status": "ok", "duration_ms": 142.3}
+```
+
+Sensitive arguments (`password`, `token`, `client_secret`, `secret`) are automatically replaced with `***` in the log.
+
 ## What's Next
 
 Here's what we're working on for upcoming releases:
 
-- **Collaboration management**: list, sync, and manage distributed collaborations (v1.8.0)
-- **Role privilege management**: get and set role privileges (v1.8.0)
-- **Scheduled tasks**: list and filter user scheduled tasks with `taskState` (v1.8.0)
-- **Server federation**: list, validate, federate, and unfederate servers (v1.9.0)
-- **Feature service sync**: createReplica, offline workflows (v2.0.0)
+### v2.0.0 — Enterprise Features
+
+- **Server federation**: list, validate, federate, and unfederate servers
+- **Feature service sync**: createReplica, offline workflows
 
 If any of these would solve a problem you're facing, [open an issue](https://github.com/Asem-D/arcgis-portal-mcp/issues) and let us know. We prioritize based on real-world needs.
 

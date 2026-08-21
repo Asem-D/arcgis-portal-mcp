@@ -479,10 +479,6 @@ class ArcGISClient:
         """Get detailed metadata for a specific item."""
         return self._sharing_request(f"/content/items/{item_id}")
 
-    def get_item_data(self, item_id: str) -> dict[str, Any] | None:
-        """Get the data/content of an item (e.g. web map JSON, service definition)."""
-        return self._sharing_request(f"/content/items/{item_id}/data")
-
     def list_users(self, max_users: int = 1000) -> list[dict[str, Any]]:
         """List all portal users."""
         users = []
@@ -2448,11 +2444,7 @@ class ArcGISClient:
             for item_type in search_types:
                 # search_items with max_items=0 would still return items,
                 # so we search with max_items=1 to get total count from results
-                items = self.search_items(
-                    query="*", item_type=item_type, max_items=1
-                )
-                # We can't get total from search_items directly since it
-                # returns a list. Use _sharing_request to get the count.
+                # Use _sharing_request to get the count directly.
                 search_data = self._sharing_request(
                     "/search",
                     params={
@@ -2779,20 +2771,6 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
 
 
 def _epoch_to_str(epoch_ms: int | float | None) -> str:
-    """Convert epoch milliseconds to readable date string."""
-    if not epoch_ms:
-        return ""
-    try:
-        return datetime.fromtimestamp(epoch_ms / 1000).strftime("%Y-%m-%d %H:%M")
-    except (ValueError, OSError):
-        return str(epoch_ms)
-
-
-def _truncate(text: str | None, max_len: int) -> str:
-    """Truncate text to max_len characters."""
-    if not text:
-        return ""
-    return (text[:max_len] + "...") if len(text) > max_len else text
     """Convert epoch milliseconds to readable date string."""
     if not epoch_ms:
         return ""

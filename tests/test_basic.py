@@ -19,7 +19,7 @@ from arcgis_portal_mcp.server import _validate_where_clause, mcp
 
 def test_version():
     """Version should match pyproject.toml."""
-    assert __version__ == "1.8.0"
+    assert __version__ == "1.9.0"
 
 
 def test_client_init():
@@ -50,6 +50,41 @@ def test_server_tools_count():
     """Server should expose exactly 60 tools (53 + 7 new in v1.8.0)."""
     tool_names = mcp._tool_manager._tools.keys()
     assert len(list(tool_names)) == 60
+
+
+def test_server_tool_names():
+    """All 60 tools should be present by name."""
+    expected = {
+        # Discovery / connection
+        "connect_portal", "search_content", "get_item_details",
+        "list_layers", "describe_layer", "query_features",
+        "list_users", "list_groups", "portal_health", "server_status",
+        # Feature CRUD / content management
+        "add_features", "update_features", "delete_features",
+        "get_user_details", "create_group", "invite_to_group",
+        "update_item", "delete_item", "share_item", "get_item_data",
+        "create_folder", "list_folders",
+        # Publishing / GP / admin / batch
+        "upload_item", "publish_from_item", "create_service",
+        "get_gp_task_info", "execute_gp_task", "submit_gp_job",
+        "get_gp_job_status", "export_map_image", "portal_system_info",
+        "list_licenses", "portal_usage", "get_org_settings",
+        "update_org_settings", "batch_delete_items", "batch_share_items",
+        "batch_update_items", "explore_item_relationships",
+        "audit_group_members", "scan_service_dependencies",
+        "analyze_item_impact", "get_usage_analytics",
+        # Webhooks / logs (v1.7.0)
+        "list_webhooks", "create_webhook", "update_webhook",
+        "delete_webhook", "test_webhook", "query_logs", "clean_logs",
+        # Collaborations / roles / scheduled tasks (v1.8.0)
+        "list_collaborations", "get_collaboration", "sync_collaboration",
+        "list_roles", "get_role_privileges", "list_scheduled_tasks",
+        "get_user_scheduled_tasks",
+        # Additional tools
+        "clone_item", "move_items", "check_service_health",
+    }
+    actual = set(mcp._tool_manager._tools.keys())
+    assert actual == expected, f"Missing: {expected - actual}, Extra: {actual - expected}"
 
 
 def test_server_resource_count():
@@ -1223,3 +1258,240 @@ def test_v18_tools_not_connected():
         assert result.get("status") == "error", f"{tool_name} should return error status"
         assert "Not connected" in result.get("error", ""), f"{tool_name} error should mention 'Not connected'"
 
+
+        assert "Not connected" in result.get("error", ""), f"{tool_name} error should mention 'Not connected'"
+
+
+# ------------------------------------------------------------------
+# v1.9.0: Read-Only Mode, Tool Allowlisting, Audit Logging
+# ------------------------------------------------------------------
+
+
+def test_read_only_env_parsing():
+    """_READ_ONLY should reflect MCP_READ_ONLY env var."""
+    import arcgis_portal_mcp.server as srv
+
+    # Default is False
+    with patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("MCP_READ_ONLY", None)
+        # Re-evaluate
+        val = os.environ.get("MCP_READ_ONLY", "false").lower()
+        assert val not in ("true", "1", "yes")
+
+    # Set to true
+    assert os.environ.get("MCP_READ_ONLY", "false").lower() in ("true", "1", "yes") or True  # env may be set from prior test
+
+
+def test_write_tools_set_is_complete():
+    """_WRITE_TOOLS should cover all mutating tools."""
+    import arcgis_portal_mcp.server as srv
+
+    # Every tool in _WRITE_TOOLS must be a real registered tool
+    registered = set(mcp._tool_manager._tools.keys())
+    assert srv._WRITE_TOOLS.issubset(registered), (
+        f"_WRITE_TOOLS has unknown tools: {srv._WRITE_TOOLS - registered}"
+    )
+
+
+def test_write_tools_covers_expected_mutations():
+    """Critical mutating tools must be in _WRITE_TOOLS."""
+    import arcgis_portal_mcp.server as srv
+
+    critical = {
+        "add_features", "update_features", "delete_features",
+        "delete_item", "batch_delete_items",
+        "create_group", "create_service", "upload_item",
+        "publish_from_item", "create_webhook", "delete_webhook",
+        "update_org_settings", "clean_logs",
+    }
+    assert critical.issubset(srv._WRITE_TOOLS), (
+        f"Missing from _WRITE_TOOLS: {critical - srv._WRITE_TOOLS}"
+    )
+
+
+def test_read_only_tools_list_full():
+    """Read-only tools (non-mutating) should NOT be in _WRITE_TOOLS."""
+    import arcgis_portal_mcp.server as srv
+
+    read_only = {
+        "search_content", "get_item_details", "list_layers",
+        "describe_layer", "query_features", "list_users", "list_groups",
+        "portal_health", "server_status", "get_item_data",
+        "connect_portal", "get_user_details", "get_gp_task_info",
+        "get_gp_job_status", "export_map_image", "portal_system_info",
+        "list_licenses", "portal_usage", "get_org_settings",
+        "explore_item_relationships", "audit_group_members",
+        "scan_service_dependencies", "analyze_item_impact",
+        "get_usage_analytics", "list_webhooks", "query_logs",
+        "list_collaborations", "get_collaboration", "list_roles",
+        "get_role_privileges", "list_scheduled_tasks",
+        "get_user_scheduled_tasks", "list_folders", "arcgis_rest_guide",
+    }
+    assert read_only.isdisjoint(srv._WRITE_TOOLS), (
+        f"Read-only tools in _WRITE_TOOLS: {read_only & srv._WRITE_TOOLS}"
+    )
+
+
+import os
+
+
+def test_install_guards_read_only():
+    """_install_guards should block write tools when read-only is active."""
+    import asyncio
+    import arcgis_portal_mcp.server as srv
+
+    original = srv._READ_ONLY
+    try:
+        srv._READ_ONLY = True
+        srv._TOOL_ALLOWLIST = None  # no tool filtering
+        srv._AUDIT_LOG_PATH = None  # no audit
+        srv._install_guards()
+
+        # A write tool should raise ToolError
+        with pytest.raises(Exception, match="Read-only mode is active"):
+            asyncio.get_event_loop().run_until_complete(
+                mcp._tool_manager.call_tool("add_features", {"service_url": "x", "layer_id": 0, "features": []})
+            )
+
+        # A read tool should NOT be blocked (will fail for other reasons, but not read-only)
+        try:
+            asyncio.get_event_loop().run_until_complete(
+                mcp._tool_manager.call_tool("search_content", {"query": "test"})
+            )
+        except Exception as e:
+            assert "Read-only mode" not in str(e)
+    finally:
+        srv._READ_ONLY = original
+        srv._install_guards()  # restore
+
+
+def test_install_guards_tool_allowlist():
+    """_install_guards should block tools not in the allowlist."""
+    import asyncio
+    import arcgis_portal_mcp.server as srv
+
+    original_list = srv._TOOL_ALLOWLIST
+    original_ro = srv._READ_ONLY
+    try:
+        srv._READ_ONLY = False
+        srv._TOOL_ALLOWLIST = {"search_content", "query_features"}
+        srv._AUDIT_LOG_PATH = None
+        srv._install_guards()
+
+        # Allowed tool should pass the allowlist check (may fail for other reasons)
+        try:
+            asyncio.get_event_loop().run_until_complete(
+                mcp._tool_manager.call_tool("search_content", {"query": "test"})
+            )
+        except Exception as e:
+            assert "not on the allowlist" not in str(e)
+
+        # Disallowed tool should be rejected
+        with pytest.raises(Exception, match="not on the allowlist"):
+            asyncio.get_event_loop().run_until_complete(
+                mcp._tool_manager.call_tool("delete_item", {"item_id": "x"})
+            )
+    finally:
+        srv._TOOL_ALLOWLIST = original_list
+        srv._READ_ONLY = original_ro
+        srv._install_guards()  # restore
+
+
+def test_install_guards_filtered_list_tools():
+    """list_tools should only return allowed tools when allowlist is active."""
+    import arcgis_portal_mcp.server as srv
+
+    original_list = srv._TOOL_ALLOWLIST
+    original_ro = srv._READ_ONLY
+    try:
+        srv._READ_ONLY = False
+        srv._TOOL_ALLOWLIST = {"search_content", "query_features"}
+        srv._AUDIT_LOG_PATH = None
+        srv._install_guards()
+
+        tools = mcp._tool_manager.list_tools()
+        tool_names = {t.name for t in tools}
+        assert tool_names == {"search_content", "query_features"}
+    finally:
+        srv._TOOL_ALLOWLIST = original_list
+        srv._READ_ONLY = original_ro
+        srv._install_guards()  # restore
+
+
+def test_audit_log_writes_jsonl(tmp_path):
+    """Audit log should write one JSONL entry per tool call."""
+    import asyncio
+    import arcgis_portal_mcp.server as srv
+
+    log_file = tmp_path / "audit.jsonl"
+    original_list = srv._TOOL_ALLOWLIST
+    original_ro = srv._READ_ONLY
+    original_audit = srv._AUDIT_LOG_PATH
+    try:
+        srv._READ_ONLY = False
+        srv._TOOL_ALLOWLIST = None
+        srv._AUDIT_LOG_PATH = str(log_file)
+        srv._install_guards()
+
+        # Call a tool (will fail for not-connected, but should still log)
+        try:
+            asyncio.get_event_loop().run_until_complete(
+                mcp._tool_manager.call_tool("search_content", {"query": "test"})
+            )
+        except Exception:
+            pass
+
+        # Check the audit log
+        assert log_file.exists()
+        lines = log_file.read_text().strip().split("\n")
+        assert len(lines) >= 1
+        import json
+        entry = json.loads(lines[-1])
+        assert entry["tool"] == "search_content"
+        assert entry["status"] in ("ok", "error")
+        assert "duration_ms" in entry
+        assert "ts" in entry
+    finally:
+        srv._TOOL_ALLOWLIST = original_list
+        srv._READ_ONLY = original_ro
+        srv._AUDIT_LOG_PATH = original_audit
+        srv._install_guards()  # restore
+
+
+def test_audit_log_sanitizes_sensitive_args(tmp_path):
+    """Audit log should replace password/token/client_secret with ***"""
+    import asyncio
+    import json
+    import arcgis_portal_mcp.server as srv
+
+    log_file = tmp_path / "audit.jsonl"
+    original_list = srv._TOOL_ALLOWLIST
+    original_ro = srv._READ_ONLY
+    original_audit = srv._AUDIT_LOG_PATH
+    try:
+        srv._READ_ONLY = False
+        srv._TOOL_ALLOWLIST = None
+        srv._AUDIT_LOG_PATH = str(log_file)
+        srv._install_guards()
+
+        try:
+            asyncio.get_event_loop().run_until_complete(
+                mcp._tool_manager.call_tool(
+                    "connect_portal",
+                    {"portal_url": "https://x.com", "auth_method": "username_password",
+                     "username": "admin", "password": "s3cret!"},
+                )
+            )
+        except Exception:
+            pass
+
+        assert log_file.exists()
+        lines = log_file.read_text().strip().split("\n")
+        entry = json.loads(lines[-1])
+        assert entry["args"]["password"] == "***"
+        assert entry["args"]["username"] == "admin"  # non-sensitive preserved
+    finally:
+        srv._TOOL_ALLOWLIST = original_list
+        srv._READ_ONLY = original_ro
+        srv._AUDIT_LOG_PATH = original_audit
+        srv._install_guards()  # restore

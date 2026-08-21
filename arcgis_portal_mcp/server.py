@@ -11,14 +11,19 @@ v1.1.0: Username/password auth via generateToken.
 v1.2.0: describe_layer (full layer schema), get_gp_task_info (GP task inspection).
 v1.7.0: Webhooks, logs, org settings, folders.
 v1.8.0: Collaborations, roles & privileges, scheduled tasks.
+v1.9.0: Security hardening (read-only mode, tool allowlisting, audit logging).
 """
 
 from __future__ import annotations
 
+import argparse
+import functools
 import json
 import logging
 import os
+import re
 import sys
+import time as _time
 from pathlib import Path
 from typing import Any
 
@@ -28,9 +33,6 @@ from . import __version__
 from .client import ArcGISClient
 
 logger = logging.getLogger("arcgis-portal-mcp")
-
-# WHERE clause validation — blocks SQL injection patterns
-import re
 
 # Destructive SQL keywords that should never appear in a WHERE clause
 _DANGEROUS_SQL_PATTERNS = re.compile(
@@ -184,6 +186,74 @@ def _check_service_url(url: str) -> str | None:
         f"Service URL '{url}' is not on the allowlist. "
         f"Allowed prefixes: {', '.join(allowed)}."
     )
+
+
+# =========================================================================
+# Security: Read-Only Mode, Tool Allowlisting, Audit Logging (v1.9.0)
+# =========================================================================
+# Read-only mode: blocks all write/mutating tools when enabled.
+# Tool allowlist: restricts which tools the AI client can see and invoke.
+# Audit log: records every tool call (name, args, status, duration) to a JSONL file.
+
+_READ_ONLY: bool = os.environ.get("MCP_READ_ONLY", "false").lower() in (
+    "true", "1", "yes",
+)
+
+_raw_allow = os.environ.get("MCP_ALLOWED_TOOLS", "").strip()
+_TOOL_ALLOWLIST: set[str] | None = (
+    {t.strip() for t in _raw_allow.split(",") if t.strip()} if _raw_allow else None
+)
+
+_AUDIT_LOG_PATH: str | None = os.environ.get("MCP_AUDIT_LOG") or None
+
+# Tools that modify portal state — blocked when read-only mode is active.
+_WRITE_TOOLS: set[str] = {
+    # Feature CRUD
+    "add_features", "update_features", "delete_features",
+    # Content management
+    "create_group", "invite_to_group", "update_item", "delete_item",
+    "share_item", "upload_item", "publish_from_item", "create_service",
+    "create_folder", "clone_item", "move_items",
+    # Batch operations
+    "batch_delete_items", "batch_share_items", "batch_update_items",
+    # Webhooks
+    "create_webhook", "update_webhook", "delete_webhook", "test_webhook",
+    # Admin
+    "update_org_settings", "clean_logs",
+    # Collaborations
+    "sync_collaboration",
+}
+
+
+def _write_audit_entry(
+    tool_name: str,
+    args: dict[str, Any],
+    status: str,
+    duration_ms: float,
+    error: str | None = None,
+) -> None:
+    """Append a single audit entry to the JSONL log file."""
+    if not _AUDIT_LOG_PATH:
+        return
+    entry: dict[str, Any] = {
+        "ts": _time.time(),
+        "tool": tool_name,
+        "status": status,
+        "duration_ms": round(duration_ms, 1),
+    }
+    if error:
+        entry["error"] = error
+    # Sanitize sensitive args — never log passwords, tokens, secrets
+    _SENSITIVE_KEYS = {"password", "token", "client_secret", "secret"}
+    entry["args"] = {
+        k: ("***" if k.lower() in _SENSITIVE_KEYS else v)
+        for k, v in args.items()
+    }
+    try:
+        with open(_AUDIT_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception as exc:
+        logger.warning("Failed to write audit entry: %s", exc)
 
 
 _env_cache: dict[str, str] | None = None
@@ -2517,14 +2587,105 @@ def arcgis_rest_guide() -> str:
 # =========================================================================
 
 
+def _install_guards() -> None:
+    """Wrap tool dispatch with read-only, allowlist, and audit guards.
+
+    Modifies ``mcp._tool_manager`` in place so that:
+    * ``list_tools`` returns only allowed tools (when MCP_ALLOWED_TOOLS is set).
+    * ``call_tool`` rejects disallowed tools, blocks writes in read-only mode,
+      and logs every call to the audit file (when MCP_AUDIT_LOG is set).
+    """
+    from mcp.server.fastmcp.exceptions import ToolError
+
+    original_call = mcp._tool_manager.call_tool
+    original_list = mcp._tool_manager.list_tools
+
+    # --- Filtered list_tools ---
+    @functools.wraps(original_list)
+    def _filtered_list():
+        tools = original_list()
+        if _TOOL_ALLOWLIST is not None:
+            tools = [t for t in tools if t.name in _TOOL_ALLOWLIST]
+        return tools
+
+    mcp._tool_manager.list_tools = _filtered_list  # type: ignore[assignment]
+
+    # --- Guarded call_tool ---
+    async def _guarded_call(name, arguments, context=None, convert_result=False):
+        # 1. Tool allowlist check
+        if _TOOL_ALLOWLIST is not None and name not in _TOOL_ALLOWLIST:
+            raise ToolError(
+                f"Tool '{name}' is not on the allowlist. "
+                f"Allowed: {', '.join(sorted(_TOOL_ALLOWLIST))}."
+            )
+
+        # 2. Read-only check
+        if _READ_ONLY and name in _WRITE_TOOLS:
+            raise ToolError(
+                f"Read-only mode is active. Tool '{name}' modifies data and is blocked. "
+                "Set MCP_READ_ONLY=false or remove --read-only to enable writes."
+            )
+
+        # 3. Execute with optional audit logging
+        start = _time.monotonic() if _AUDIT_LOG_PATH else None
+        try:
+            result = await original_call(
+                name, arguments, context=context, convert_result=convert_result,
+            )
+            if _AUDIT_LOG_PATH:
+                _write_audit_entry(
+                    name, arguments, "ok",
+                    (_time.monotonic() - start) * 1000,
+                )
+            return result
+        except Exception as exc:
+            if _AUDIT_LOG_PATH:
+                _write_audit_entry(
+                    name, arguments, "error",
+                    (_time.monotonic() - start) * 1000,
+                    error=str(exc),
+                )
+            raise
+
+    mcp._tool_manager.call_tool = _guarded_call  # type: ignore[assignment]
+
+
 def main() -> None:
     """Run the MCP server via stdio transport."""
+    global _READ_ONLY  # noqa: PLW0603
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
         stream=sys.stderr,
     )
+
+    # CLI argument parsing
+    parser = argparse.ArgumentParser(
+        description="ArcGIS Portal MCP Server",
+    )
+    parser.add_argument(
+        "--read-only",
+        action="store_true",
+        default=False,
+        help="Block all write/mutating tools (overrides MCP_READ_ONLY env var)",
+    )
+    args, _ = parser.parse_known_args()
+
+    if args.read_only:
+        _READ_ONLY = True
+
     logger.info("Starting ArcGIS Portal MCP Server v%s", __version__)
+
+    if _READ_ONLY:
+        logger.info("Read-only mode ACTIVE — write tools are blocked")
+    if _TOOL_ALLOWLIST:
+        logger.info(
+            "Tool allowlist ACTIVE — %d tools: %s",
+            len(_TOOL_ALLOWLIST), ", ".join(sorted(_TOOL_ALLOWLIST)),
+        )
+    if _AUDIT_LOG_PATH:
+        logger.info("Audit logging ACTIVE — %s", _AUDIT_LOG_PATH)
 
     # Auto-connect from .env if credentials are available
     connected, method = _auto_connect()
@@ -2532,6 +2693,9 @@ def main() -> None:
         logger.info("Ready, connected to portal via .env credentials (method: %s)", method)
     else:
         logger.info("Ready, waiting for connect_portal tool call")
+
+    # Install security guards (read-only, allowlist, audit) on tool dispatch
+    _install_guards()
 
     mcp.run()
 
