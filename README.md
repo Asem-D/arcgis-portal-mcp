@@ -156,6 +156,93 @@ Alternatively, pass credentials via MCP client env vars:
 }
 ```
 
+### Connecting MCP Clients
+
+Step-by-step setup for popular AI coding assistants.
+
+#### Claude Desktop
+
+1. Install arcgis-portal-mcp (see [Installation](#installation))
+2. Create `~/.arcgis-portal-mcp/.env` with your credentials
+3. Open Claude Desktop Settings (Claude menu > Settings > Developer > Edit Config)
+4. Add to `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "arcgis-portal": {
+      "command": "python",
+      "args": ["-m", "arcgis_portal_mcp.server"],
+      "cwd": "/path/to/arcgis-portal-mcp"
+    }
+  }
+}
+```
+
+5. Restart Claude Desktop. The server connects automatically from `.env`.
+
+> **macOS/Linux:** Replace `python` with `python3` if needed. Use `which python3` to find the full path.
+
+#### Cursor
+
+1. Install arcgis-portal-mcp (see [Installation](#installation))
+2. Create `~/.arcgis-portal-mcp/.env` with your credentials
+3. Open Cursor Settings (gear icon > MCP)
+4. Click "Add new global server" and paste:
+
+```json
+{
+  "name": "arcgis-portal",
+  "command": "python",
+  "args": ["-m", "arcgis_portal_mcp.server"],
+  "cwd": "/path/to/arcgis-portal-mcp"
+}
+```
+
+5. Toggle the server on. Cursor connects automatically.
+
+#### VS Code (GitHub Copilot)
+
+1. Install arcgis-portal-mcp (see [Installation](#installation))
+2. Create `~/.arcgis-portal-mcp/.env` with your credentials
+3. Add to `.vscode/mcp.json` in your workspace (or user settings):
+
+```json
+{
+  "servers": {
+    "arcgis-portal": {
+      "command": "python",
+      "args": ["-m", "arcgis_portal_mcp.server"],
+      "cwd": "/path/to/arcgis-portal-mcp"
+    }
+  }
+}
+```
+
+4. Reload VS Code. The MCP server appears in the Copilot chat panel.
+
+#### Windsurf
+
+1. Install arcgis-portal-mcp (see [Installation](#installation))
+2. Create `~/.arcgis-portal-mcp/.env` with your credentials
+3. Open Windsurf Settings > Cascade > MCP Servers
+4. Add a new server:
+
+```json
+{
+  "name": "arcgis-portal",
+  "command": "python",
+  "args": ["-m", "arcgis_portal_mcp.server"],
+  "cwd": "/path/to/arcgis-portal-mcp"
+}
+```
+
+5. Restart Windsurf.
+
+#### nanobot (this agent)
+
+Already configured. The MCP server is registered in `config.json` under `tools.mcpServers.arcgis-portal`.
+
 ### `connect_portal` Tool Parameters
 
 The `connect_portal` tool accepts these `auth_method` values:
