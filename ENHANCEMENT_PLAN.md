@@ -1,8 +1,8 @@
 # arcgis-portal-mcp Enhancement Plan
 
 **Date**: August 2026
-**Current version**: v1.8.0 (60 tools)
-**Last updated**: 2026-08-07
+**Current version**: v1.9.0 (60 tools)
+**Last updated**: 2026-08-21
 
 ---
 
@@ -73,8 +73,9 @@
 |---|---|---|
 | **Q3 2026** | Webhooks + Logs + Org Settings + Folders | v1.7.0 ✅ |
 | **Q4 2026** | Collaborations + Role Management + Scheduled Tasks | v1.8.0 ✅ |
-| **Q1 2027** | Server Federation + Machines + SSL | v1.9.0 |
+| **Q1 2027** | Security Hardening (read-only mode, tool allowlist, audit log) | v1.9.0 ✅ |
 | **Q2 2027** | Feature Service Sync + Item Relationships CRUD + AI Services | v2.0.0 |
+| **Q3 2027** | Server Federation + Machines + SSL | v2.1.0 |
 
 ### v1.7.0 (August 2026) -- IMPLEMENTED
 
@@ -104,7 +105,44 @@
 | 6 | `list_scheduled_tasks` | Done |
 | 7 | `get_user_scheduled_tasks` | Done |
 
-### v1.9.0 (target: Q1 2027) -- PLANNED
+### v1.9.0 (August 2026) -- IMPLEMENTED
+
+Security hardening release. No new tools added, but three cross-cutting features that dramatically improve production readiness.
+
+| # | Feature | Description |
+|---|---------|-------------|
+| 1 | `MCP_READ_ONLY` / `--read-only` | Blocks all 25 write/mutating tools at the dispatch level |
+| 2 | `MCP_ALLOWED_TOOLS` | Restricts which tools are visible and callable (comma-separated allowlist) |
+| 3 | `MCP_AUDIT_LOG` | JSONL audit trail for every tool call with sanitized arguments |
+
+Architecture: `_install_guards()` wraps `mcp._tool_manager.call_tool` and `list_tools` in `main()` before `mcp.run()`. Zero changes to existing tool functions.
+
+Also fixed pre-existing lint issues: duplicate `get_item_data`, unused `items` variable, dead code, misplaced import.
+
+### v2.0.0 (target: Q2 2027) -- PLANNED
+
+Feature Service Sync release. The high-impact release for field ops and distributed GIS.
+
+| # | Tool | Why It Matters |
+|---|------|----------------|
+| 1 | `create_replica` | Offline workflows, data distribution to field devices |
+| 2 | `sync_replica` | Bidirectional data sync between portal and replicas |
+| 3 | `add_item_relationship` | CRUD for item dependencies (we have explore, not create/delete) |
+| 4 | `remove_item_relationship` | Clean up dependency chains |
+| 5 | `export_group_content` | Content migration (Desktop Style/Solution, Enterprise 12.1+) |
+| 6 | AI Services management | Enable/Disable/Status for Enterprise 12.0+ AI assistants |
+
+### v2.1.0 (target: Q3 2027) -- PLANNED
+
+Server infrastructure management. Lower priority, needed only for Enterprise admins managing multi-machine deployments.
+
+| # | Tool | Why It Matters |
+|---|------|----------------|
+| 1 | `list_federated_servers` | See what ArcGIS Server instances are connected |
+| 2 | `federate_server` | Register a new ArcGIS Server with the portal |
+| 3 | `unfederate_server` | Remove a server registration |
+| 4 | `list_machines` | Monitor multi-machine deployment health |
+| 5 | `list_ssl_certificates` | Security certificate management |
 
 ### Ongoing Maintenance
 

@@ -427,10 +427,17 @@ Sensitive arguments (`password`, `token`, `client_secret`, `secret`) are automat
 
 Here's what we're working on for upcoming releases:
 
-### v2.0.0 — Enterprise Features
+### v2.0.0 — Feature Service Sync
+
+- **createReplica / sync**: offline workflows and bidirectional data sync
+- **Item relationship CRUD**: add/remove item dependencies
+- **AI Services management**: enable/disable AI assistants (Enterprise 12.0+)
+
+### v2.1.0 — Server Infrastructure
 
 - **Server federation**: list, validate, federate, and unfederate servers
-- **Feature service sync**: createReplica, offline workflows
+- **Machine monitoring**: list machines and deployment status
+- **SSL certificate management**: list, import, generate
 
 If any of these would solve a problem you're facing, [open an issue](https://github.com/Asem-D/arcgis-portal-mcp/issues) and let us know. We prioritize based on real-world needs.
 
