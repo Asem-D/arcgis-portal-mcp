@@ -1,6 +1,6 @@
 # arcgis-portal-mcp
 
-**v1.9.0.** 60 tools for ArcGIS Enterprise Portal and ArcGIS Online.
+**v1.10.0.** 66 tools for ArcGIS Enterprise Portal and ArcGIS Online.
 
 A Model Context Protocol (MCP) server that gives AI assistants direct access to your ArcGIS content. Search, inspect, edit, publish, and admin through natural language.
 
@@ -8,7 +8,13 @@ Works with Claude Desktop, Cursor, VS Code Copilot, and any MCP-compatible clien
 
 > **Disclaimer:** This is an independent open-source project. Not affiliated with, endorsed by, or sponsored by Esri. "ArcGIS" is a registered trademark of Esri.
 
-## What's new in v1.9.0
+## What's new in v1.10.0
+
+- **Group lifecycle**: update, delete, and manage group members -- complete the CRUD loop for portal groups
+- **Folder deletion**: remove content folders (with warning about contents)
+- **User search**: find users by name, email, or username without dumping the entire user list
+
+### What's new in v1.9.0
 
 - **Read-only mode**: block all write/mutating tools via `MCP_READ_ONLY=true` or `--read-only` CLI flag
 - **Tool allowlisting**: restrict which tools the AI client can see and invoke via `MCP_ALLOWED_TOOLS=name1,name2`
@@ -491,7 +497,7 @@ Restricts which tools the AI client can see and invoke. When set, only the named
 MCP_ALLOWED_TOOLS=search_content,query_features,list_layers,describe_layer,portal_health
 ```
 
-When unset (the default), all 60 tools are available. Tools not on the list are invisible to the AI client and rejected if called directly.
+When unset (the default), all 66 tools are available. Tools not on the list are invisible to the AI client and rejected if called directly.
 
 ### Audit Logging (v1.9.0)
 

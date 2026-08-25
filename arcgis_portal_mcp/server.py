@@ -2511,6 +2511,172 @@ def list_folders(owner: str = "") -> dict[str, Any]:
         return {"status": "error", "error": str(e)}
 
 
+# =========================================================================
+# v1.10.0: Group & Folder Lifecycle
+# =========================================================================
+
+
+@mcp.tool()
+def delete_folder(folder_id: str, owner: str = "") -> dict[str, Any]:
+    """Delete a content folder.
+
+    WARNING: Deleting a folder also deletes all items it contains.
+
+    Args:
+        folder_id: The folder ID to delete.
+        owner: Folder owner username. Defaults to connected user.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    try:
+        result = client.delete_folder(folder_id=folder_id, owner=owner or None)
+        if "error" in result:
+            return {"status": "error", "error": result["error"]}
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def update_group(
+    group_id: str,
+    title: str = "",
+    description: str = "",
+    access: str = "",
+    is_invitation_only: bool | None = None,
+) -> dict[str, Any]:
+    """Update properties of an existing group.
+
+    Only non-empty parameters are applied. Use this to rename,
+    change visibility, or toggle invitation-only mode.
+
+    Args:
+        group_id: The group ID to update.
+        title: New display name for the group.
+        description: New group description.
+        access: New visibility: "private", "org", or "public".
+        is_invitation_only: If true, users must be invited to join.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    grp_err = _check_group_ids(group_id)
+    if grp_err:
+        return {"status": "error", "error": grp_err}
+
+    result = client.update_group(
+        group_id=group_id,
+        title=title or None,
+        description=description or None,
+        access=access or None,
+        is_invitation_only=is_invitation_only,
+    )
+    if "error" in result:
+        return {"status": "error", "error": result["error"]}
+    return {"status": "ok", "result": result}
+
+
+@mcp.tool()
+def delete_group(group_id: str) -> dict[str, Any]:
+    """Delete a group from the portal.
+
+    Only the group owner or an org administrator can delete a group.
+
+    Args:
+        group_id: The ID of the group to delete.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    grp_err = _check_group_ids(group_id)
+    if grp_err:
+        return {"status": "error", "error": grp_err}
+
+    result = client.delete_group(group_id=group_id)
+    if "error" in result:
+        return {"status": "error", "error": result["error"]}
+    return {"status": "ok", "result": result}
+
+
+@mcp.tool()
+def remove_from_group(group_id: str, users: str) -> dict[str, Any]:
+    """Remove users from a group.
+
+    The group owner, group managers, and org administrators can
+    remove members. The group owner cannot be removed.
+
+    Args:
+        group_id: The group ID to remove users from.
+        users: Comma-separated usernames to remove (e.g. "jsmith,mgarcia").
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    grp_err = _check_group_ids(group_id)
+    if grp_err:
+        return {"status": "error", "error": grp_err}
+
+    result = client.remove_from_group(group_id=group_id, users=users)
+    if "error" in result:
+        return {"status": "error", "error": result["error"]}
+    return {"status": "ok", "result": result}
+
+
+@mcp.tool()
+def list_group_users(group_id: str, max_users: int = 100) -> dict[str, Any]:
+    """List users in a specific group.
+
+    Lighter than audit_group_members -- returns just the user list
+    without group metadata.
+
+    Args:
+        group_id: The group ID to list users for.
+        max_users: Maximum users to return (default 100).
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    grp_err = _check_group_ids(group_id)
+    if grp_err:
+        return {"status": "error", "error": grp_err}
+
+    users = client.list_group_users(group_id=group_id, max_users=max_users)
+    return {
+        "status": "ok",
+        "group_id": group_id,
+        "count": len(users),
+        "users": users,
+    }
+
+
+@mcp.tool()
+def search_users(query: str, max_users: int = 100) -> dict[str, Any]:
+    """Search portal users by name, email, or username.
+
+    Returns matching users with their role and status.
+
+    Args:
+        query: Search string (matches name, email, username).
+        max_users: Maximum results to return (default 100).
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    users = client.search_users(query=query, max_users=max_users)
+    return {
+        "status": "ok",
+        "count": len(users),
+        "users": users,
+    }
+
+
 @mcp.resource("arcgis://guide")
 def arcgis_rest_guide() -> str:
     """Reference guide for ArcGIS REST API operations."""

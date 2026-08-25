@@ -2207,6 +2207,146 @@ class ArcGISClient:
         except Exception as e:
             return {"error": str(e)}
 
+    # ----- Group Lifecycle (v1.10.0) -----
+
+    def update_group(
+        self,
+        group_id: str,
+        title: str | None = None,
+        description: str | None = None,
+        access: str | None = None,
+        is_invitation_only: bool | None = None,
+    ) -> dict[str, Any]:
+        """Update group properties.
+
+        Args:
+            group_id: The group ID to update.
+            title: New group title.
+            description: New group description.
+            access: New access level (private, org, public).
+            is_invitation_only: If True, users must be invited.
+
+        Returns:
+            Dict with update result.
+        """
+        data: dict[str, Any] = {}
+        if title is not None:
+            data["title"] = title
+        if description is not None:
+            data["description"] = description
+        if access is not None:
+            data["access"] = access
+        if is_invitation_only is not None:
+            data["isInvitationOnly"] = str(is_invitation_only).lower()
+
+        if not data:
+            return {"error": "No fields to update"}
+
+        result = self._sharing_request(
+            f"/community/groups/{group_id}/update",
+            params=data,
+            method="POST",
+        )
+        return result or {"error": "Group update failed"}
+
+    def delete_group(self, group_id: str) -> dict[str, Any]:
+        """Delete a group.
+
+        Args:
+            group_id: The group ID to delete.
+
+        Returns:
+            Dict with delete result.
+        """
+        result = self._sharing_request(
+            f"/community/groups/{group_id}/delete",
+            params={},
+            method="POST",
+        )
+        return result or {"error": "Group delete failed"}
+
+    def remove_from_group(self, group_id: str, users: str) -> dict[str, Any]:
+        """Remove users from a group.
+
+        Args:
+            group_id: The group ID.
+            users: Comma-separated usernames to remove.
+
+        Returns:
+            Dict with removal results.
+        """
+        result = self._sharing_request(
+            f"/community/groups/{group_id}/removeUsers",
+            params={"users": users},
+            method="POST",
+        )
+        return result or {"error": "Remove users failed"}
+
+    def list_group_users(self, group_id: str, max_users: int = 100) -> list[dict[str, Any]]:
+        """List users in a specific group.
+
+        Lighter than audit_group_members -- returns just the user list
+        without group metadata.
+
+        Args:
+            group_id: The group ID.
+            max_users: Maximum users to return.
+
+        Returns:
+            List of user dicts with username, fullName, role.
+        """
+        result = self._sharing_request(
+            f"/community/groups/{group_id}/users",
+            params={"num": max_users},
+        )
+        if not result or "error" in result:
+            return []
+        return result.get("users", [])
+
+    # ----- Folder Lifecycle (v1.10.0) -----
+
+    def delete_folder(self, folder_id: str, owner: str | None = None) -> dict[str, Any]:
+        """Delete a content folder.
+
+        WARNING: Deleting a folder also deletes all items it contains.
+
+        Args:
+            folder_id: The folder ID to delete.
+            owner: Folder owner username. Defaults to connected user.
+
+        Returns:
+            Dict with delete result.
+        """
+        user = owner or self.username
+        if not user:
+            return {"error": "No owner specified and not connected"}
+        result = self._sharing_request(
+            f"/content/users/{user}/{folder_id}/delete",
+            params={},
+            method="POST",
+        )
+        return result or {"error": "Folder delete failed"}
+
+    # ----- User Search (v1.10.0) -----
+
+    def search_users(self, query: str, max_users: int = 100) -> list[dict[str, Any]]:
+        """Search portal users by name, email, or username.
+
+        Args:
+            query: Search string (matches name, email, username).
+            max_users: Maximum results to return.
+
+        Returns:
+            List of matching user dicts.
+        """
+        result = self._sharing_request(
+            "/portals/self/users",
+            params={"q": query, "num": max_users},
+        )
+        if not result or "error" in result:
+            return []
+        return result.get("users", [])
+
     # ----- Tool 3: Service Dependency Scanner -----
 
     def scan_service_dependencies(self, service_item_id: str) -> dict[str, Any]:

@@ -19,7 +19,7 @@ from arcgis_portal_mcp.server import _validate_where_clause, mcp
 
 def test_version():
     """Version should match pyproject.toml."""
-    assert __version__ == "1.9.0"
+    assert __version__ == "1.10.0"
 
 
 def test_client_init():
@@ -47,13 +47,13 @@ def test_client_connect_bad_token():
 
 
 def test_server_tools_count():
-    """Server should expose exactly 60 tools (53 + 7 new in v1.8.0)."""
+    """Server should expose exactly 66 tools."""
     tool_names = mcp._tool_manager._tools.keys()
-    assert len(list(tool_names)) == 60
+    assert len(list(tool_names)) == 66
 
 
 def test_server_tool_names():
-    """All 60 tools should be present by name."""
+    """All 66 tools should be present by name."""
     expected = {
         # Discovery / connection
         "connect_portal", "search_content", "get_item_details",
@@ -82,6 +82,9 @@ def test_server_tool_names():
         "get_user_scheduled_tasks",
         # Additional tools
         "clone_item", "move_items", "check_service_health",
+        # Group & folder lifecycle (v1.10.0)
+        "update_group", "delete_group", "remove_from_group",
+        "list_group_users", "delete_folder", "search_users",
     }
     actual = set(mcp._tool_manager._tools.keys())
     assert actual == expected, f"Missing: {expected - actual}, Extra: {actual - expected}"
@@ -1416,6 +1419,221 @@ def test_install_guards_filtered_list_tools():
         srv._TOOL_ALLOWLIST = original_list
         srv._READ_ONLY = original_ro
         srv._install_guards()  # restore
+
+
+# ------------------------------------------------------------------
+# v1.10.0: Group & Folder Lifecycle
+# ------------------------------------------------------------------
+
+
+def test_update_group_tool_exists():
+    """update_group tool should be registered."""
+    tool_names = list(mcp._tool_manager._tools.keys())
+    assert "update_group" in tool_names
+
+
+def test_delete_group_tool_exists():
+    """delete_group tool should be registered."""
+    tool_names = list(mcp._tool_manager._tools.keys())
+    assert "delete_group" in tool_names
+
+
+def test_remove_from_group_tool_exists():
+    """remove_from_group tool should be registered."""
+    tool_names = list(mcp._tool_manager._tools.keys())
+    assert "remove_from_group" in tool_names
+
+
+def test_list_group_users_tool_exists():
+    """list_group_users tool should be registered."""
+    tool_names = list(mcp._tool_manager._tools.keys())
+    assert "list_group_users" in tool_names
+
+
+def test_delete_folder_tool_exists():
+    """delete_folder tool should be registered."""
+    tool_names = list(mcp._tool_manager._tools.keys())
+    assert "delete_folder" in tool_names
+
+
+def test_search_users_tool_exists():
+    """search_users tool should be registered."""
+    tool_names = list(mcp._tool_manager._tools.keys())
+    assert "search_users" in tool_names
+
+
+def test_update_group_not_connected():
+    """update_group should return error when not connected."""
+    from arcgis_portal_mcp.server import update_group
+
+    result = update_group("some-group-id")
+    assert result["status"] == "error"
+    assert "Not connected" in result["error"]
+
+
+def test_delete_group_not_connected():
+    """delete_group should return error when not connected."""
+    from arcgis_portal_mcp.server import delete_group
+
+    result = delete_group("some-group-id")
+    assert result["status"] == "error"
+    assert "Not connected" in result["error"]
+
+
+def test_remove_from_group_not_connected():
+    """remove_from_group should return error when not connected."""
+    from arcgis_portal_mcp.server import remove_from_group
+
+    result = remove_from_group("some-group-id", "user1")
+    assert result["status"] == "error"
+    assert "Not connected" in result["error"]
+
+
+def test_list_group_users_not_connected():
+    """list_group_users should return error when not connected."""
+    from arcgis_portal_mcp.server import list_group_users
+
+    result = list_group_users("some-group-id")
+    assert result["status"] == "error"
+    assert "Not connected" in result["error"]
+
+
+def test_delete_folder_not_connected():
+    """delete_folder should return error when not connected."""
+    from arcgis_portal_mcp.server import delete_folder
+
+    result = delete_folder("some-folder-id")
+    assert result["status"] == "error"
+    assert "Not connected" in result["error"]
+
+
+def test_search_users_not_connected():
+    """search_users should return error when not connected."""
+    from arcgis_portal_mcp.server import search_users
+
+    result = search_users("admin")
+    assert result["status"] == "error"
+    assert "Not connected" in result["error"]
+
+
+def test_client_update_group():
+    """update_group should POST to correct endpoint."""
+    client = ArcGISClient()
+    client._token = "fake-token"
+
+    with patch.object(client, "_sharing_request") as mock_req:
+        mock_req.return_value = {"success": True}
+        result = client.update_group("grp123", title="New Title")
+
+    mock_req.assert_called_once_with(
+        "/community/groups/grp123/update",
+        params={"title": "New Title"},
+        method="POST",
+    )
+    assert result["success"] is True
+
+
+def test_client_update_group_no_fields():
+    """update_group with no fields should return error."""
+    client = ArcGISClient()
+    client._token = "fake-token"
+    result = client.update_group("grp123")
+    assert "error" in result
+    assert "No fields" in result["error"]
+
+
+def test_client_delete_group():
+    """delete_group should POST to correct endpoint."""
+    client = ArcGISClient()
+    client._token = "fake-token"
+
+    with patch.object(client, "_sharing_request") as mock_req:
+        mock_req.return_value = {"success": True}
+        result = client.delete_group("grp123")
+
+    mock_req.assert_called_once_with(
+        "/community/groups/grp123/delete",
+        params={},
+        method="POST",
+    )
+    assert result["success"] is True
+
+
+def test_client_remove_from_group():
+    """remove_from_group should POST to correct endpoint."""
+    client = ArcGISClient()
+    client._token = "fake-token"
+
+    with patch.object(client, "_sharing_request") as mock_req:
+        mock_req.return_value = {"success": True}
+        result = client.remove_from_group("grp123", "user1,user2")
+
+    mock_req.assert_called_once_with(
+        "/community/groups/grp123/removeUsers",
+        params={"users": "user1,user2"},
+        method="POST",
+    )
+    assert result["success"] is True
+
+
+def test_client_list_group_users():
+    """list_group_users should return user list."""
+    client = ArcGISClient()
+    client._token = "fake-token"
+
+    with patch.object(client, "_sharing_request") as mock_req:
+        mock_req.return_value = {
+            "users": [
+                {"username": "user1", "fullName": "User One", "role": "org_user"},
+                {"username": "user2", "fullName": "User Two", "role": "org_admin"},
+            ],
+            "total": 2,
+        }
+        result = client.list_group_users("grp123")
+
+    assert len(result) == 2
+    assert result[0]["username"] == "user1"
+    assert result[1]["username"] == "user2"
+
+
+def test_client_delete_folder():
+    """delete_folder should POST to correct endpoint."""
+    client = ArcGISClient()
+    client._token = "fake-token"
+    client._username = "admin"
+
+    with patch.object(client, "_sharing_request") as mock_req:
+        mock_req.return_value = {"success": True}
+        result = client.delete_folder("fld123")
+
+    mock_req.assert_called_once_with(
+        "/content/users/admin/fld123/delete",
+        params={},
+        method="POST",
+    )
+    assert result["success"] is True
+
+
+def test_client_search_users():
+    """search_users should return matching users."""
+    client = ArcGISClient()
+    client._token = "fake-token"
+
+    with patch.object(client, "_sharing_request") as mock_req:
+        mock_req.return_value = {
+            "users": [
+                {"username": "admin", "fullName": "Admin User", "role": "org_admin"},
+            ],
+            "total": 1,
+        }
+        result = client.search_users("admin")
+
+    mock_req.assert_called_once_with(
+        "/portals/self/users",
+        params={"q": "admin", "num": 100},
+    )
+    assert len(result) == 1
+    assert result[0]["username"] == "admin"
 
 
 def test_audit_log_writes_jsonl(tmp_path):
