@@ -19,7 +19,7 @@ from arcgis_portal_mcp.server import _validate_where_clause, mcp
 
 def test_version():
     """Version should match pyproject.toml."""
-    assert __version__ == "1.10.0"
+    assert __version__ == "1.11.0"
 
 
 def test_client_init():
@@ -47,13 +47,13 @@ def test_client_connect_bad_token():
 
 
 def test_server_tools_count():
-    """Server should expose exactly 66 tools."""
+    """Server should expose exactly 70 tools."""
     tool_names = mcp._tool_manager._tools.keys()
-    assert len(list(tool_names)) == 66
+    assert len(list(tool_names)) == 70
 
 
 def test_server_tool_names():
-    """All 66 tools should be present by name."""
+    """All 70 tools should be present by name."""
     expected = {
         # Discovery / connection
         "connect_portal", "search_content", "get_item_details",
@@ -85,6 +85,9 @@ def test_server_tool_names():
         # Group & folder lifecycle (v1.10.0)
         "update_group", "delete_group", "remove_from_group",
         "list_group_users", "delete_folder", "search_users",
+        # Admin problem solvers (v1.11.0)
+        "scan_broken_references", "find_stale_items",
+        "export_group_content", "import_group_content",
     }
     actual = set(mcp._tool_manager._tools.keys())
     assert actual == expected, f"Missing: {expected - actual}, Extra: {actual - expected}"
@@ -656,6 +659,11 @@ def test_tool_returns_not_connected():
         "batch_delete_items": (["id1,id2"], {}),
         "batch_share_items": (["id1,id2"], {}),
         "batch_update_items": (["id1,id2"], {}),
+        # v1.11.0: admin problem solvers
+        "scan_broken_references": (["some-id"], {}),
+        "find_stale_items": ([], {}),
+        "export_group_content": (["grp123"], {}),
+        "import_group_content": (["grp123"], {}),
     }
 
     for tool_name, (args, kwargs) in tool_calls.items():
@@ -1713,3 +1721,362 @@ def test_audit_log_sanitizes_sensitive_args(tmp_path):
         srv._READ_ONLY = original_ro
         srv._AUDIT_LOG_PATH = original_audit
         srv._install_guards()  # restore
+
+
+# ------------------------------------------------------------------
+# v1.11.0: Admin Problem Solvers
+# ------------------------------------------------------------------
+
+
+def test_scan_broken_references_tool_exists():
+    """scan_broken_references tool should be registered."""
+    tool_names = list(mcp._tool_manager._tools.keys())
+    assert "scan_broken_references" in tool_names
+
+
+def test_find_stale_items_tool_exists():
+    """find_stale_items tool should be registered."""
+    tool_names = list(mcp._tool_manager._tools.keys())
+    assert "find_stale_items" in tool_names
+
+
+def test_export_group_content_tool_exists():
+    """export_group_content tool should be registered."""
+    tool_names = list(mcp._tool_manager._tools.keys())
+    assert "export_group_content" in tool_names
+
+
+def test_import_group_content_tool_exists():
+    """import_group_content tool should be registered."""
+    tool_names = list(mcp._tool_manager._tools.keys())
+    assert "import_group_content" in tool_names
+
+
+def test_scan_broken_references_not_connected():
+    """scan_broken_references should return error when not connected."""
+    from arcgis_portal_mcp.server import scan_broken_references
+
+    result = scan_broken_references(target_id="some-id")
+    assert result["status"] == "error"
+    assert "Not connected" in result["error"]
+
+
+def test_find_stale_items_not_connected():
+    """find_stale_items should return error when not connected."""
+    from arcgis_portal_mcp.server import find_stale_items
+
+    result = find_stale_items()
+    assert result["status"] == "error"
+    assert "Not connected" in result["error"]
+
+
+def test_export_group_content_not_connected():
+    """export_group_content should return error when not connected."""
+    from arcgis_portal_mcp.server import export_group_content
+
+    result = export_group_content(group_id="grp123")
+    assert result["status"] == "error"
+    assert "Not connected" in result["error"]
+
+
+def test_import_group_content_not_connected():
+    """import_group_content should return error when not connected."""
+    from arcgis_portal_mcp.server import import_group_content
+
+    result = import_group_content(group_id="grp123")
+    assert result["status"] == "error"
+    assert "Not connected" in result["error"]
+
+
+def test_scan_broken_references_invalid_target_type():
+    """scan_broken_references should reject invalid target_type."""
+    from arcgis_portal_mcp.server import scan_broken_references
+
+    mock_client = MagicMock()
+    with patch("arcgis_portal_mcp.server._require_connected", return_value=mock_client):
+        result = scan_broken_references(target_id="x", target_type="invalid")
+        assert result["status"] == "error"
+        assert "Invalid target_type" in result["error"]
+
+
+def test_scan_broken_references_success():
+    """scan_broken_references should call client.scan_broken_references."""
+    from arcgis_portal_mcp.server import scan_broken_references
+
+    mock_client = MagicMock()
+    mock_client.scan_broken_references.return_value = {
+        "target_id": "abc123",
+        "target_type": "item",
+        "item_title": "Test Map",
+        "total_urls": 5,
+        "healthy": 4,
+        "broken": 1,
+        "urls": [],
+    }
+
+    with patch("arcgis_portal_mcp.server._require_connected", return_value=mock_client):
+        result = scan_broken_references(
+            target_id="abc123", target_type="item", timeout=10,
+        )
+        assert result["status"] == "ok"
+        assert result["total_urls"] == 5
+        assert result["broken"] == 1
+        mock_client.scan_broken_references.assert_called_once_with(
+            target_id="abc123",
+            target_type="item",
+            timeout=10,
+            check_layers=True,
+            check_basemap=True,
+        )
+
+
+def test_find_stale_items_success():
+    """find_stale_items should call client.find_stale_items."""
+    from arcgis_portal_mcp.server import find_stale_items
+
+    mock_client = MagicMock()
+    mock_client.find_stale_items.return_value = {
+        "scan_params": {"owner": "jsmith", "days_threshold": 180, "min_views": 0, "item_types": "(all)"},
+        "summary": {"total_scanned": 50, "stale_count": 12, "total_stale_storage_mb": 45.0, "governance_violations": 3, "by_type": {"Feature Service": 8}},
+        "stale_items": [],
+        "governance_violations": [],
+    }
+
+    with patch("arcgis_portal_mcp.server._require_connected", return_value=mock_client):
+        result = find_stale_items(
+            owner="jsmith", days_threshold=180, min_views=0, max_items=200,
+        )
+        assert result["status"] == "ok"
+        assert result["summary"]["stale_count"] == 12
+        mock_client.find_stale_items.assert_called_once_with(
+            owner="jsmith",
+            days_threshold=180,
+            min_views=0,
+            item_types="",
+            include_storage=True,
+            max_items=200,
+        )
+
+
+def test_export_group_content_success():
+    """export_group_content should call client.export_group_content."""
+    from arcgis_portal_mcp.server import export_group_content
+
+    mock_client = MagicMock()
+    mock_client.export_group_content.return_value = {
+        "group_id": "grp123",
+        "group_title": "GIS Data",
+        "export_package": {"item_id": "epk456", "title": "Export", "download_url": "https://x.com/epk", "item_count": 3},
+        "exported_items": [],
+    }
+
+    with patch("arcgis_portal_mcp.server._require_connected", return_value=mock_client):
+        with patch("arcgis_portal_mcp.server._check_group_ids", return_value=None):
+            result = export_group_content(group_id="grp123", items="a,b", title="My Export")
+            assert result["status"] == "ok"
+            assert result["export_package"]["item_id"] == "epk456"
+            mock_client.export_group_content.assert_called_once_with(
+                group_id="grp123",
+                items=["a", "b"],
+                title="My Export",
+            )
+
+
+def test_export_group_content_empty_items():
+    """export_group_content should pass None for empty items string."""
+    from arcgis_portal_mcp.server import export_group_content
+
+    mock_client = MagicMock()
+    mock_client.export_group_content.return_value = {
+        "group_id": "grp123",
+        "export_package": {"item_id": "epk789", "item_count": 5},
+        "exported_items": [],
+    }
+
+    with patch("arcgis_portal_mcp.server._require_connected", return_value=mock_client):
+        with patch("arcgis_portal_mcp.server._check_group_ids", return_value=None):
+            result = export_group_content(group_id="grp123")
+            assert result["status"] == "ok"
+            mock_client.export_group_content.assert_called_once_with(
+                group_id="grp123",
+                items=None,
+                title="",
+            )
+
+
+def test_import_group_content_success():
+    """import_group_content should call client.import_group_content."""
+    from arcgis_portal_mcp.server import import_group_content
+
+    mock_client = MagicMock()
+    mock_client.import_group_content.return_value = {
+        "target_group_id": "grp789",
+        "import_results": {
+            "total": 3,
+            "succeeded": 3,
+            "failed": 0,
+            "imported_items": [],
+            "failures": [],
+        },
+    }
+
+    with patch("arcgis_portal_mcp.server._require_connected", return_value=mock_client):
+        with patch("arcgis_portal_mcp.server._check_group_ids", return_value=None):
+            result = import_group_content(
+                group_id="grp789",
+                import_url="https://x.com/epk",
+                owner="admin",
+                title_prefix="Prod: ",
+            )
+            assert result["status"] == "ok"
+            assert result["import_results"]["succeeded"] == 3
+            mock_client.import_group_content.assert_called_once_with(
+                group_id="grp789",
+                import_url="https://x.com/epk",
+                item_id="",
+                owner="admin",
+                title_prefix="Prod: ",
+            )
+
+
+# ------------------------------------------------------------------
+# Client: _extract_urls_from_item_data (helper tests)
+# ------------------------------------------------------------------
+
+
+def test_extract_urls_from_operational_layers():
+    """Should extract URLs from operationalLayers."""
+    client = ArcGISClient()
+    data = {
+        "operationalLayers": [
+            {"url": "https://host/arcgis/rest/services/Parcels/FeatureServer/0", "title": "Parcels"},
+            {"url": "https://host/arcgis/rest/services/Roads/FeatureServer", "title": "Roads"},
+        ],
+    }
+    urls = client._extract_urls_from_item_data(data)
+    assert len(urls) == 2
+    assert urls[0]["url"] == "https://host/arcgis/rest/services/Parcels/FeatureServer/0"
+    assert urls[0]["referenced_by"] == "operationalLayers[0]"
+    assert urls[1]["url"] == "https://host/arcgis/rest/services/Roads/FeatureServer"
+    assert urls[1]["referenced_by"] == "operationalLayers[1]"
+
+
+def test_extract_urls_from_basemap():
+    """Should extract URLs from baseMapLayers."""
+    client = ArcGISClient()
+    data = {
+        "baseMap": {
+            "baseMapLayers": [
+                {"url": "https://services.arcgis.com/Imagery/MapServer", "title": "Imagery"},
+            ],
+            "referenceLayers": [
+                {"url": "https://services.arcgis.com/Labels/MapServer", "title": "Labels"},
+            ],
+        },
+    }
+    urls = client._extract_urls_from_item_data(data)
+    assert len(urls) == 2
+    assert "Imagery" in urls[0]["url"]
+    assert "baseMapLayers" in urls[0]["referenced_by"]
+    assert "Labels" in urls[1]["url"]
+    assert "referenceLayers" in urls[1]["referenced_by"]
+
+
+def test_extract_urls_from_tables():
+    """Should extract URLs from tables array."""
+    client = ArcGISClient()
+    data = {
+        "tables": [
+            {"url": "https://host/arcgis/rest/services/Attributes/FeatureServer/1"},
+        ],
+    }
+    urls = client._extract_urls_from_item_data(data)
+    assert len(urls) == 1
+    assert urls[0]["referenced_by"] == "tables[0]"
+
+
+def test_extract_urls_empty_data():
+    """Should return empty list for empty data."""
+    client = ArcGISClient()
+    assert client._extract_urls_from_item_data({}) == []
+    assert client._extract_urls_from_item_data({"operationalLayers": []}) == []
+
+
+def test_extract_urls_skips_basemap_when_disabled():
+    """Should skip basemap URLs when check_basemap=False."""
+    client = ArcGISClient()
+    data = {
+        "operationalLayers": [
+            {"url": "https://host/FeatureServer/0"},
+        ],
+        "baseMap": {
+            "baseMapLayers": [
+                {"url": "https://services.arcgis.com/MapServer"},
+            ],
+        },
+    }
+    urls = client._extract_urls_from_item_data(data, check_basemap=False)
+    assert len(urls) == 1
+    assert "FeatureServer" in urls[0]["url"]
+
+
+def test_extract_urls_deduplicates():
+    """Same URL in multiple locations should appear only once."""
+    client = ArcGISClient()
+    url = "https://host/arcgis/rest/services/Data/FeatureServer/0"
+    data = {
+        "operationalLayers": [
+            {"url": url},
+            {"url": url},
+        ],
+    }
+    urls = client._extract_urls_from_item_data(data)
+    assert len(urls) == 2  # Client-side dedup happens in scan, not extract
+
+
+# ------------------------------------------------------------------
+# Client: _classify_staleness (helper tests)
+# ------------------------------------------------------------------
+
+
+def test_classify_staleness_active_item():
+    """Recent item with views should not be stale."""
+    from datetime import datetime
+
+    client = ArcGISClient()
+    recent_date = datetime.now().strftime("%Y-%m-%d %H:%M")
+    item = {"id": "x", "title": "Active", "modified": recent_date, "num_views": 50, "size": 1000, "access": "org", "tags": ["a"], "snippet": "yes", "description": "yes"}
+    result = client._classify_staleness(item, days_threshold=180, min_views=0)
+    assert result["is_stale"] is False
+    assert result["recommendation"] == "Active (within threshold)"
+
+
+def test_classify_staleness_old_private_zero_views():
+    """Old private item with zero views should suggest deletion."""
+    item = {"id": "x", "title": "Old", "modified": "2020-01-01 00:00", "num_views": 0, "size": 5_000_000, "access": "private", "tags": [], "snippet": "", "description": ""}
+    result = ArcGISClient._classify_staleness(item, days_threshold=180, min_views=0)
+    assert result["is_stale"] is True
+    assert "Delete" in result["recommendation"]
+    assert result["governance"]["non_compliant"] is True
+    assert "missing_tags" in result["governance"]["issues"]
+
+
+def test_classify_staleness_governance_compliance():
+    """Item with all metadata should be governance-compliant."""
+    item = {"id": "x", "title": "Good", "modified": "2020-01-01 00:00", "num_views": 10, "size": 1000, "access": "org", "tags": ["tag1"], "snippet": "Summary", "description": "Full description"}
+    result = ArcGISClient._classify_staleness(item, days_threshold=180, min_views=0)
+    assert result["governance"]["has_description"] is True
+    assert result["governance"]["has_tags"] is True
+    assert result["governance"]["has_snippet"] is True
+    assert result["governance"]["non_compliant"] is False
+
+
+# ------------------------------------------------------------------
+# Client: import_group_content is in _WRITE_TOOLS
+# ------------------------------------------------------------------
+
+
+def test_import_group_content_in_write_tools():
+    """import_group_content should be in _WRITE_TOOLS for read-only protection."""
+    from arcgis_portal_mcp.server import _WRITE_TOOLS
+    assert "import_group_content" in _WRITE_TOOLS

@@ -1,11 +1,11 @@
 ---
 name: arcgis-portal-mcp
-description: "MCP server for ArcGIS Portal and ArcGIS Online. 66 tools for search, inspect, publish, query, manage, audit, and administer ArcGIS content. Use when: the user wants to work with feature services, web maps, layers, groups, users, webhooks, or portal administration through an AI assistant."
+description: "MCP server for ArcGIS Portal and ArcGIS Online. 70 tools for search, inspect, publish, query, manage, audit, and administer ArcGIS content. Use when: the user wants to work with feature services, web maps, layers, groups, users, webhooks, or portal administration through an AI assistant."
 ---
 
 # arcgis-portal-mcp
 
-MCP server for ArcGIS Enterprise Portal and ArcGIS Online. 66 tools covering the full ArcGIS REST API surface.
+MCP server for ArcGIS Enterprise Portal and ArcGIS Online. 70 tools covering the full ArcGIS REST API surface.
 
 ## When to Use
 
@@ -22,7 +22,7 @@ MCP server for ArcGIS Enterprise Portal and ArcGIS Online. 66 tools covering the
 - `.env` file with portal credentials (or MCP client env vars)
 - The MCP server must be configured in the AI client
 
-## Tool Reference (66 Tools)
+## Tool Reference (70 Tools)
 
 ### Connection and Status
 
@@ -133,6 +133,15 @@ MCP server for ArcGIS Enterprise Portal and ArcGIS Online. 66 tools covering the
 | `list_roles` / `get_role_privileges` | Audit organization roles and privileges. |
 | `list_scheduled_tasks` / `get_user_scheduled_tasks` | Monitor automated workflows. |
 
+### Admin Problem Solvers (v1.11.0)
+
+| Tool | Description |
+|------|-------------|
+| `scan_broken_references` | Scan web maps/apps for unreachable service URLs (item or group-level). |
+| `find_stale_items` | Find items not modified in N days with governance violation detection. |
+| `export_group_content` | Export group items to an .epk package for content migration (Enterprise only). |
+| `import_group_content` | Import items from an .epk package into a target group (Enterprise only). |
+
 ## Common Workflows
 
 ### 1. Publish a Local File as a Hosted Feature Service
@@ -202,6 +211,38 @@ Step 3: analyze_item_impact
 
 Step 4: batch_delete_items
   - item_ids: confirmed orphan IDs
+```
+
+### 5. Scan for Broken References
+
+```
+Step 1: scan_broken_references
+  - target_id: web map item ID
+  - target_type: item (or group for bulk scan)
+  - timeout: 5
+
+Step 2: Review results
+  - total_urls: how many URLs found
+  - healthy / broken: counts
+  - urls[].status: healthy | unreachable | timeout | error
+  - urls[].referenced_by: which layer has the problem
+```
+
+### 6. Find and Clean Stale Content
+
+```
+Step 1: find_stale_items
+  - owner: username (or blank for all)
+  - days_threshold: 365 (items older than this)
+  - item_types: Web Map,Feature Service (optional filter)
+
+Step 2: Review results
+  - summary.stale_count: total stale items
+  - summary.total_stale_storage_mb: space reclaimable
+  - governance_violations: items missing description/tags/snippet
+
+Step 3: batch_delete_items
+  - item_ids: IDs of confirmed stale items
 ```
 
 ### 5. Audit Group Membership

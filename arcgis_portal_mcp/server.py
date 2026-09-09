@@ -222,6 +222,8 @@ _WRITE_TOOLS: set[str] = {
     "update_org_settings", "clean_logs",
     # Collaborations
     "sync_collaboration",
+    # Group content migration
+    "import_group_content",
 }
 
 
@@ -366,7 +368,7 @@ def _auto_connect() -> tuple[bool, str | None]:
     1. username + password -> generateToken (user-level, full permissions)
     2. client_id + client_secret -> client_credentials (app-level, limited)
 
-    Returns (True, method_name) if connected, (False, None) otherwise.
+    Returns (True, method_name) if connected, (False, error_detail) otherwise.
     """
     client = _get_client()
 
@@ -386,7 +388,9 @@ def _auto_connect() -> tuple[bool, str | None]:
 
     if not portal_url:
         logger.info("Auto-connect skipped: no portal_url in .env")
-        return False, None
+        return False, "No portal_url found in .env"
+
+    last_error: str | None = None
 
     # Try username/password first (user-level token)
     if username and password:
@@ -399,6 +403,7 @@ def _auto_connect() -> tuple[bool, str | None]:
             )
             return True, "generateToken"
         except Exception as e:
+            last_error = str(e)
             logger.warning("generateToken auth failed, falling back to client_credentials: %s", e)
 
     # Fall back to client_credentials (app-level token)
@@ -412,13 +417,24 @@ def _auto_connect() -> tuple[bool, str | None]:
             )
             return True, "client_credentials"
         except Exception as e:
+            last_error = str(e)
             logger.warning("client_credentials auth failed: %s", e)
 
-    logger.info(
-        "Auto-connect skipped: no usable credentials in .env "
-        "(need username+password or oauth_client_id+oauth_client_secret)"
-    )
-    return False, None
+    # Build a clear diagnostic message
+    if not username and not password and not client_id and not client_secret:
+        detail = (
+            "No credentials in .env. "
+            "Need username+password or oauth_client_id+oauth_client_secret."
+        )
+    elif last_error:
+        detail = f"Credentials found in .env but connection failed: {last_error}"
+    else:
+        detail = (
+            "Found portal_url in .env but no usable credentials. "
+            "Need username+password or oauth_client_id+oauth_client_secret."
+        )
+    logger.info("Auto-connect failed: %s", detail)
+    return False, detail
 
 
 # =========================================================================
@@ -475,12 +491,12 @@ def connect_portal(
 
         if auth_method == "auto":
             # Try auto-connect from .env
-            connected, method = _auto_connect()
+            connected, detail = _auto_connect()
             if connected:
-                if method == "reused":
+                if detail == "reused":
                     method_label = f"{client._auth_method} (auto, reused)" if client._auth_method else "auto (reused)"
                 else:
-                    method_label = f"{method} (auto)"
+                    method_label = f"{detail} (auto)"
                 return {
                     "status": "ok",
                     "username": client.username,
@@ -491,11 +507,7 @@ def connect_portal(
             else:
                 return {
                     "status": "error",
-                    "error": (
-                        "Auto-connect failed. Ensure .env contains: "
-                        "portal_url and either (username + password) or "
-                        "(oauth_client_id + oauth_client_secret)."
-                    ),
+                    "error": f"Auto-connect failed: {detail}",
                 }
 
         elif auth_method == "username_password":
@@ -2677,6 +2689,184 @@ def search_users(query: str, max_users: int = 100) -> dict[str, Any]:
     }
 
 
+# =========================================================================
+# v1.11.0: Admin Problem Solvers
+# =========================================================================
+
+
+@mcp.tool()
+def scan_broken_references(
+    target_id: str,
+    target_type: str = "item",
+    timeout: int = 5,
+    check_layers: bool = True,
+    check_basemap: bool = True,
+) -> dict[str, Any]:
+    """Scan for broken service URL references in a web map or group.
+
+    Reads web map/app JSON, extracts all service URLs, and HEAD-requests
+    each one to check reachability. For groups, iterates all scannable items.
+
+    Args:
+        target_id: Item ID (web map) or group ID to scan.
+        target_type: 'item' for a single web map/app, 'group' for all items.
+        timeout: Per-URL ping timeout in seconds (default 5).
+        check_layers: Check operationalLayers URLs (default true).
+        check_basemap: Check basemap URLs (default true).
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    if target_type not in ("item", "group"):
+        return {
+            "status": "error",
+            "error": f"Invalid target_type: '{target_type}'. Use 'item' or 'group'.",
+        }
+
+    try:
+        result = client.scan_broken_references(
+            target_id=target_id,
+            target_type=target_type,
+            timeout=min(max(timeout, 1), 30),
+            check_layers=check_layers,
+            check_basemap=check_basemap,
+        )
+        if "error" in result:
+            return {"status": "error", "error": result["error"]}
+        return {"status": "ok", **result}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def find_stale_items(
+    owner: str = "",
+    days_threshold: int = 180,
+    min_views: int = 0,
+    item_types: str = "",
+    include_storage: bool = True,
+    max_items: int = 200,
+) -> dict[str, Any]:
+    """Find items that haven't been accessed or modified in a while.
+
+    Scans portal content for stale items based on modification date and
+    view count. Also flags governance violations (missing descriptions/tags
+    on shared items). Useful for cleanup, offboarding audits, and
+    storage optimization.
+
+    Args:
+        owner: Filter by owner (empty = scan all). Respects MCP_ALLOWED_OWNERS.
+        days_threshold: Items not modified in this many days are stale (default 180).
+        min_views: Items with fewer views than this are stale (default 0).
+        item_types: Comma-separated types to scan (empty = all types).\        include_storage: Include item size in output (default true).
+        max_items: Maximum items to scan (default 200, max 500).
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    try:
+        result = client.find_stale_items(
+            owner=owner,
+            days_threshold=max(days_threshold, 1),
+            min_views=max(min_views, 0),
+            item_types=item_types,
+            include_storage=include_storage,
+            max_items=min(max_items, 500),
+        )
+        if "error" in result:
+            return {"status": "error", "error": result["error"]}
+        return {"status": "ok", **result}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def export_group_content(
+    group_id: str,
+    items: str = "",
+    title: str = "",
+) -> dict[str, Any]:
+    """Export a group's content to an export package (.epk).
+
+    Creates a downloadable package containing the group's items and their
+    data. The package can later be imported into the same or a different
+    organization using import_group_content.
+
+    Args:
+        group_id: The group ID whose content to export.
+        items: Comma-separated item IDs to include (empty = export all).
+        title: Optional title for the export package.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    grp_err = _check_group_ids(group_id)
+    if grp_err:
+        return {"status": "error", "error": grp_err}
+
+    # Parse comma-separated item IDs
+    item_list = [i.strip() for i in items.split(",") if i.strip()] or None
+
+    try:
+        result = client.export_group_content(
+            group_id=group_id,
+            items=item_list,
+            title=title,
+        )
+        if "error" in result:
+            return {"status": "error", "error": result["error"]}
+        return {"status": "ok", **result}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def import_group_content(
+    group_id: str,
+    import_url: str = "",
+    item_id: str = "",
+    owner: str = "",
+    title_prefix: str = "",
+) -> dict[str, Any]:
+    """Import content from an export package into a group.
+
+    Imports items from a .epk export package (created by
+    export_group_content) into the specified target group. Use this
+    to migrate content between portals or create backups.
+
+    Args:
+        group_id: Target group ID to import into.
+        import_url: Download URL of the .epk (from export_group_content).
+        item_id: Alternative: item ID of an uploaded .epk in the portal.
+        owner: Owner for imported items. Defaults to connected user.
+        title_prefix: Optional prefix added to each imported item title.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    grp_err = _check_group_ids(group_id)
+    if grp_err:
+        return {"status": "error", "error": grp_err}
+
+    try:
+        result = client.import_group_content(
+            group_id=group_id,
+            import_url=import_url,
+            item_id=item_id,
+            owner=owner,
+            title_prefix=title_prefix,
+        )
+        if "error" in result:
+            return {"status": "error", "error": result["error"]}
+        return {"status": "ok", **result}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
 @mcp.resource("arcgis://guide")
 def arcgis_rest_guide() -> str:
     """Reference guide for ArcGIS REST API operations."""
@@ -2854,11 +3044,11 @@ def main() -> None:
         logger.info("Audit logging ACTIVE — %s", _AUDIT_LOG_PATH)
 
     # Auto-connect from .env if credentials are available
-    connected, method = _auto_connect()
+    connected, detail = _auto_connect()
     if connected:
-        logger.info("Ready, connected to portal via .env credentials (method: %s)", method)
+        logger.info("Ready, connected to portal via .env credentials (method: %s)", detail)
     else:
-        logger.info("Ready, waiting for connect_portal tool call")
+        logger.info("Ready, waiting for connect_portal tool call (%s)", detail)
 
     # Install security guards (read-only, allowlist, audit) on tool dispatch
     _install_guards()

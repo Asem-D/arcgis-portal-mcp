@@ -2865,6 +2865,609 @@ class ArcGISClient:
             return []
         return data.get("tasks", [])
 
+    # ------------------------------------------------------------------
+    # v1.11.0: Admin Problem Solvers
+    # ------------------------------------------------------------------
+
+    # --- Helpers ---
+
+    def _extract_urls_from_item_data(
+        self,
+        data: dict[str, Any],
+        check_layers: bool = True,
+        check_basemap: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Extract all service URLs from web map/app JSON.
+
+        Walks the standard ArcGIS web map structure and collects every
+        service URL with its location in the JSON hierarchy.
+
+        Args:
+            data: Parsed JSON from get_item_data (web map definition).
+            check_layers: Include operationalLayers URLs.
+            check_basemap: Include baseMap and reference layer URLs.
+
+        Returns:
+            List of dicts, each with "url" and "referenced_by" path.
+        """
+        urls: list[dict[str, Any]] = []
+
+        def _walk_layers(
+            layers: list[dict[str, Any]],
+            prefix: str,
+        ) -> None:
+            """Recursively walk layers, including nested folder groups."""
+            for i, layer in enumerate(layers):
+                url = layer.get("url", "")
+                if url:
+                    urls.append({
+                        "url": url.rstrip("/"),
+                        "referenced_by": f"{prefix}[{i}]",
+                    })
+                for sub_key in ("layers", "featureCollection"):
+                    sub = layer.get(sub_key)
+                    if isinstance(sub, list):
+                        _walk_layers(sub, f"{prefix}[{i}].{sub_key}")
+                    elif isinstance(sub, dict):
+                        nested = sub.get("layers", [])
+                        if isinstance(nested, list):
+                            _walk_layers(
+                                nested,
+                                f"{prefix}[{i}].{sub_key}.layers",
+                            )
+
+        if check_layers:
+            operational = data.get("operationalLayers", [])
+            if isinstance(operational, list):
+                _walk_layers(operational, "operationalLayers")
+
+        if check_basemap:
+            basemap = data.get("baseMap", {})
+            if isinstance(basemap, dict):
+                bm_layers = basemap.get("baseMapLayers", [])
+                if isinstance(bm_layers, list):
+                    _walk_layers(bm_layers, "baseMap.baseMapLayers")
+                ref_layers = basemap.get("referenceLayers", [])
+                if isinstance(ref_layers, list):
+                    _walk_layers(ref_layers, "baseMap.referenceLayers")
+
+        tables = data.get("tables", [])
+        if isinstance(tables, list):
+            for i, tbl in enumerate(tables):
+                url = tbl.get("url", "")
+                if url:
+                    urls.append({
+                        "url": url.rstrip("/"),
+                        "referenced_by": f"tables[{i}]",
+                    })
+
+        return urls
+
+    def _ping_url(self, url: str, timeout: int = 5) -> dict[str, Any]:
+        """Check if a service URL is reachable via HTTP GET.
+
+        Args:
+            url: The service URL to check.
+            timeout: Request timeout in seconds.
+
+        Returns:
+            Dict with url, status, http_status, latency_ms, error.
+        """
+        import time
+        start = time.monotonic()
+        try:
+            resp = self._session.get(
+                url, params={"f": "json"}, timeout=timeout,
+                allow_redirects=True,
+            )
+            latency = int((time.monotonic() - start) * 1000)
+            status = "healthy" if resp.status_code < 400 else "unreachable"
+            result: dict[str, Any] = {
+                "url": url, "status": status,
+                "http_status": resp.status_code, "latency_ms": latency,
+            }
+            if status == "unreachable":
+                try:
+                    err_data = resp.json()
+                    result["error"] = err_data.get(
+                        "error", {}
+                    ).get("message", resp.reason)
+                except Exception:
+                    result["error"] = resp.reason or f"HTTP {resp.status_code}"
+            return result
+        except requests.exceptions.Timeout:
+            latency = int((time.monotonic() - start) * 1000)
+            return {
+                "url": url, "status": "timeout", "http_status": 0,
+                "latency_ms": latency, "error": f"No response within {timeout}s",
+            }
+        except requests.exceptions.ConnectionError as e:
+            latency = int((time.monotonic() - start) * 1000)
+            return {
+                "url": url, "status": "error", "http_status": 0,
+                "latency_ms": latency, "error": str(e)[:200],
+            }
+        except Exception as e:
+            latency = int((time.monotonic() - start) * 1000)
+            return {
+                "url": url, "status": "error", "http_status": 0,
+                "latency_ms": latency, "error": str(e)[:200],
+            }
+
+    @staticmethod
+    def _classify_staleness(
+        item: dict[str, Any],
+        days_threshold: int,
+        min_views: int,
+    ) -> dict[str, Any]:
+        """Classify a single item for staleness and governance.
+
+        Args:
+            item: Item dict (needs id, title, type, owner, modified,
+                  num_views, size, access, snippet, tags, description).
+            days_threshold: Items older than this are stale.
+            min_views: Items with fewer views are stale.
+
+        Returns:
+            Dict with staleness classification and governance info.
+        """
+        import time
+        now_ms = time.time() * 1000
+        modified_str = item.get("modified", "")
+        days_stale = 0
+        if modified_str:
+            try:
+                from datetime import datetime
+                dt = datetime.strptime(modified_str, "%Y-%m-%d %H:%M")
+                modified_ms = dt.timestamp() * 1000
+                days_stale = int((now_ms - modified_ms) / 86_400_000)
+            except (ValueError, OSError):
+                days_stale = 0
+
+        num_views = item.get("num_views", 0)
+        is_stale = days_stale > days_threshold or num_views < min_views
+
+        has_description = bool(item.get("description", ""))
+        has_tags = bool(item.get("tags", []))
+        has_snippet = bool(item.get("snippet", ""))
+        access = item.get("access", "private")
+
+        issues: list[str] = []
+        if not has_description:
+            issues.append("missing_description")
+        if not has_tags:
+            issues.append("missing_tags")
+        if not has_snippet:
+            issues.append("missing_snippet")
+        non_compliant = len(issues) > 0
+
+        if not is_stale:
+            recommendation = "Active (within threshold)"
+        elif access == "private" and num_views == 0 and days_stale > days_threshold * 2:
+            recommendation = "Delete (private, zero views, very old)"
+        elif access == "private" and num_views == 0:
+            recommendation = "Delete (private, zero views)"
+        elif access == "org" and num_views < 5 and days_stale > days_threshold:
+            recommendation = "Archive (org-shared, low views)"
+        else:
+            recommendation = "Review (meets staleness criteria)"
+
+        return {
+            "item_id": item.get("id", ""),
+            "title": item.get("title", ""),
+            "type": item.get("type", ""),
+            "owner": item.get("owner", ""),
+            "modified": modified_str,
+            "days_stale": days_stale,
+            "num_views": num_views,
+            "size_mb": round(item.get("size", 0) / 1_048_576, 1),
+            "access": access,
+            "is_stale": is_stale,
+            "governance": {
+                "has_description": has_description,
+                "has_tags": has_tags,
+                "has_snippet": has_snippet,
+                "non_compliant": non_compliant,
+                "issues": issues,
+            },
+            "recommendation": recommendation,
+        }
+
+    def _get_items_in_group(self, group_id: str) -> list[dict[str, Any]]:
+        """Get all items shared with a group."""
+        data = self._sharing_request(
+            f"/content/groups/{group_id}",
+            params={"num": 100},
+        )
+        if not data or "error" in data:
+            return []
+        return data.get("items", [])
+
+    # --- Tool: scan_broken_references ---
+
+    def scan_broken_references(
+        self,
+        target_id: str,
+        target_type: str = "item",
+        timeout: int = 5,
+        check_layers: bool = True,
+        check_basemap: bool = True,
+    ) -> dict[str, Any]:
+        """Scan item or group for broken service URL references.
+
+        For a single item: reads its JSON data, extracts service URLs,
+        requests each to check reachability.
+        For a group: iterates all scannable items and checks each one.
+
+        Returns:
+            Dict with scan results including healthy/broken URL counts.
+        """
+        try:
+            if target_type == "group":
+                return self._scan_broken_references_group(
+                    target_id, timeout, check_layers, check_basemap,
+                )
+            return self._scan_broken_references_item(
+                target_id, timeout, check_layers, check_basemap,
+            )
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _scan_broken_references_item(
+        self, item_id: str, timeout: int,
+        check_layers: bool, check_basemap: bool,
+    ) -> dict[str, Any]:
+        """Scan a single item for broken service references."""
+        item_info = self.get_item_details(item_id)
+        if not item_info or "error" in item_info:
+            error_msg = (
+                item_info.get("error", "Item not found")
+                if item_info else "No response"
+            )
+            return {"error": error_msg}
+
+        item_data = self.get_item_data(item_id)
+        if not item_data or "error" in item_data:
+            return {"error": f"Could not read item data for {item_id}"}
+
+        url_entries = self._extract_urls_from_item_data(
+            item_data, check_layers=check_layers, check_basemap=check_basemap,
+        )
+
+        # De-duplicate
+        seen_urls: set[str] = set()
+        unique_entries: list[dict[str, Any]] = []
+        for entry in url_entries:
+            if entry["url"] not in seen_urls:
+                seen_urls.add(entry["url"])
+                unique_entries.append(entry)
+
+        url_results: list[dict[str, Any]] = []
+        for entry in unique_entries:
+            result = self._ping_url(entry["url"], timeout=timeout)
+            result["referenced_by"] = entry["referenced_by"]
+            url_results.append(result)
+
+        healthy = sum(1 for r in url_results if r["status"] == "healthy")
+        broken = sum(1 for r in url_results if r["status"] != "healthy")
+
+        return {
+            "target_id": item_id, "target_type": "item",
+            "item_title": item_info.get("title", ""),
+            "item_type": item_info.get("type", ""),
+            "total_urls": len(url_results),
+            "healthy": healthy, "broken": broken,
+            "urls": url_results,
+        }
+
+    def _scan_broken_references_group(
+        self, group_id: str, timeout: int,
+        check_layers: bool, check_basemap: bool,
+    ) -> dict[str, Any]:
+        """Scan all items in a group for broken service references."""
+        group_info = self._sharing_request(f"/content/groups/{group_id}")
+        if not group_info or "error" in group_info:
+            error_msg = (
+                group_info.get("error", "Group not found")
+                if group_info else "No response"
+            )
+            return {"error": error_msg}
+
+        items = self._get_items_in_group(group_id)
+        scannable_types = {
+            "Web Map", "Web Mapping Application", "Dashboard",
+            "Web Experience", "StoryMap", "Instant App",
+        }
+
+        all_results: list[dict[str, Any]] = []
+        total_healthy = 0
+        total_broken = 0
+        broken_items_summary: list[dict[str, Any]] = []
+
+        for item in items:
+            item_type = item.get("type", "")
+            if item_type not in scannable_types:
+                continue
+            item_id = item.get("id", "")
+            scan = self._scan_broken_references_item(
+                item_id, timeout, check_layers, check_basemap,
+            )
+            if "error" in scan:
+                continue
+            total_healthy += scan.get("healthy", 0)
+            total_broken += scan.get("broken", 0)
+            all_results.append(scan)
+            if scan.get("broken", 0) > 0:
+                broken_items_summary.append({
+                    "item_id": item_id,
+                    "title": scan.get("item_title", ""),
+                    "type": item_type,
+                    "broken_count": scan.get("broken", 0),
+                })
+
+        return {
+            "target_id": group_id, "target_type": "group",
+            "group_title": group_info.get("title", ""),
+            "items_scanned": len(all_results),
+            "total_urls": total_healthy + total_broken,
+            "healthy": total_healthy, "broken": total_broken,
+            "broken_items_summary": broken_items_summary,
+            "items": all_results,
+        }
+
+    # --- Tool: find_stale_items ---
+
+    def find_stale_items(
+        self, owner: str = "", days_threshold: int = 180,
+        min_views: int = 0, item_types: str = "",
+        include_storage: bool = True, max_items: int = 200,
+    ) -> dict[str, Any]:
+        """Find items that have not been accessed or modified in a while.
+
+        Scans portal content for stale items based on modification date,
+        view count, and governance compliance.
+
+        Returns:
+            Dict with stale items, summary stats, governance violations.
+        """
+        try:
+            types_list = [
+                t.strip() for t in item_types.split(",") if t.strip()
+            ] if item_types else []
+
+            all_items: list[dict[str, Any]] = []
+            if types_list:
+                per_type = max(max_items // len(types_list), 20)
+                for t in types_list:
+                    results = self.search_items(
+                        query="*", item_type=t,
+                        owner=owner or None, max_items=per_type,
+                    )
+                    all_items.extend(results)
+            else:
+                all_items = self.search_items(
+                    query="*", owner=owner or None, max_items=max_items,
+                )
+
+            stale_items: list[dict[str, Any]] = []
+            governance_violations: list[dict[str, Any]] = []
+            type_counts: dict[str, int] = {}
+            total_stale_storage = 0.0
+
+            for item in all_items[:max_items]:
+                details = self.get_item_details(item.get("id", ""))
+                if not details or "error" in details:
+                    continue
+                merged = {
+                    **item,
+                    "access": details.get("access", item.get("access", "private")),
+                    "description": details.get("description", ""),
+                    "snippet": details.get("snippet", ""),
+                    "tags": details.get("tags", []),
+                    "num_views": details.get("numViews", item.get("num_views", 0)),
+                    "size": details.get("size", item.get("size", 0)),
+                    "modified": _epoch_to_str(details.get("modified")),
+                }
+                classification = self._classify_staleness(
+                    merged, days_threshold, min_views,
+                )
+                item_type = merged.get("type", "Unknown")
+                type_counts[item_type] = type_counts.get(item_type, 0) + 1
+                if classification["is_stale"]:
+                    stale_items.append(classification)
+                    total_stale_storage += classification["size_mb"]
+                if classification["governance"]["non_compliant"]:
+                    governance_violations.append({
+                        "item_id": classification["item_id"],
+                        "title": classification["title"],
+                        "type": item_type,
+                        "owner": classification["owner"],
+                        "access": classification["access"],
+                        "issues": classification["governance"]["issues"],
+                    })
+
+            stale_items.sort(key=lambda x: x["days_stale"], reverse=True)
+            by_type = dict(
+                sorted(type_counts.items(), key=lambda x: x[1], reverse=True)
+            )
+            return {
+                "scan_params": {
+                    "owner": owner or "(all)",
+                    "days_threshold": days_threshold,
+                    "min_views": min_views,
+                    "item_types": item_types or "(all)",
+                },
+                "summary": {
+                    "total_scanned": len(all_items[:max_items]),
+                    "stale_count": len(stale_items),
+                    "total_stale_storage_mb": round(total_stale_storage, 1),
+                    "governance_violations": len(governance_violations),
+                    "by_type": by_type,
+                },
+                "stale_items": stale_items,
+                "governance_violations": governance_violations,
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
+    # --- Tool: export_group_content ---
+
+    def export_group_content(
+        self, group_id: str,
+        items: list[str] | None = None, title: str = "",
+    ) -> dict[str, Any]:
+        """Export a group content to an export package (.epk).
+
+        Creates a downloadable package containing the group items and their
+        data. Can later be imported via import_group_content.
+
+        Returns:
+            Dict with export package info including download URL.
+        """
+        try:
+            group_info = self._sharing_request(f"/content/groups/{group_id}")
+            if not group_info or "error" in group_info:
+                error_msg = (
+                    group_info.get("error", "Group not found")
+                    if group_info else "No response"
+                )
+                return {"error": error_msg}
+
+            params: dict[str, Any] = {}
+            if title:
+                params["title"] = title
+            if items:
+                params["items"] = json.dumps(
+                    [{"id": item_id} for item_id in items]
+                )
+
+            result = self._sharing_request(
+                f"/content/groups/{group_id}/export",
+                params=params, method="POST",
+            )
+            if not result or "error" in result:
+                error_msg = (
+                    result.get("error", "Export failed")
+                    if result else "No response from export"
+                )
+                return {"error": error_msg}
+
+            exported_items = []
+            if items:
+                for item_id in items:
+                    details = self.get_item_details(item_id)
+                    if details and "error" not in details:
+                        exported_items.append({
+                            "item_id": item_id,
+                            "title": details.get("title", ""),
+                            "type": details.get("type", ""),
+                        })
+            else:
+                group_items = self._get_items_in_group(group_id)
+                for item in group_items:
+                    exported_items.append({
+                        "item_id": item.get("id", ""),
+                        "title": item.get("title", ""),
+                        "type": item.get("type", ""),
+                    })
+
+            return {
+                "group_id": group_id,
+                "group_title": group_info.get("title", ""),
+                "export_package": {
+                    "item_id": result.get("itemId", ""),
+                    "title": result.get("title", title or "Group Export"),
+                    "download_url": result.get("downloadUrl", ""),
+                    "item_count": len(exported_items),
+                },
+                "exported_items": exported_items,
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
+    # --- Tool: import_group_content ---
+
+    def import_group_content(
+        self, group_id: str, import_url: str = "",
+        item_id: str = "", owner: str = "", title_prefix: str = "",
+    ) -> dict[str, Any]:
+        """Import content from an export package into a group.
+
+        Imports items from a .epk export package (created by
+        export_group_content) into the specified target group.
+
+        Returns:
+            Dict with import results including per-item success/failure.
+        """
+        try:
+            group_info = self._sharing_request(f"/content/groups/{group_id}")
+            if not group_info or "error" in group_info:
+                error_msg = (
+                    group_info.get("error", "Target group not found")
+                    if group_info else "No response"
+                )
+                return {"error": error_msg}
+
+            if not import_url and not item_id:
+                return {"error": "Either import_url or item_id is required"}
+
+            params: dict[str, Any] = {}
+            if import_url:
+                params["importUrl"] = import_url
+            if item_id:
+                params["itemId"] = item_id
+            if owner:
+                params["owner"] = owner
+            if title_prefix:
+                params["titlePrefix"] = title_prefix
+
+            result = self._sharing_request(
+                f"/content/groups/{group_id}/import",
+                params=params, method="POST",
+            )
+            if not result or "error" in result:
+                error_msg = (
+                    result.get("error", "Import failed")
+                    if result else "No response from import"
+                )
+                return {"error": error_msg}
+
+            imported = result.get("importedItems", [])
+            succeeded = [
+                {
+                    "original_id": item.get("sourceItemId", ""),
+                    "new_id": item.get("itemId", ""),
+                    "title": item.get("title", ""),
+                    "type": item.get("type", ""),
+                    "status": "ok",
+                }
+                for item in imported
+                if not item.get("error")
+            ]
+            failures = [
+                {
+                    "original_id": item.get("sourceItemId", ""),
+                    "title": item.get("title", ""),
+                    "error": item.get("error", "Unknown error"),
+                }
+                for item in imported
+                if item.get("error")
+            ]
+
+            return {
+                "target_group_id": group_id,
+                "target_group_title": group_info.get("title", ""),
+                "import_results": {
+                    "total": len(imported),
+                    "succeeded": len(succeeded),
+                    "failed": len(failures),
+                    "imported_items": succeeded,
+                    "failures": failures,
+                },
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
 
 # ------------------------------------------------------------------
 # OAuth callback handler

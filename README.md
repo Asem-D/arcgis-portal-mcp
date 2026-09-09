@@ -1,6 +1,6 @@
 # arcgis-portal-mcp
 
-**v1.10.0.** 66 tools for ArcGIS Enterprise Portal and ArcGIS Online.
+**v1.11.0.** 70 tools for ArcGIS Enterprise Portal and ArcGIS Online.
 
 A Model Context Protocol (MCP) server that gives AI assistants direct access to your ArcGIS content. Search, inspect, edit, publish, and admin through natural language.
 
@@ -8,7 +8,14 @@ Works with Claude Desktop, Cursor, VS Code Copilot, and any MCP-compatible clien
 
 > **Disclaimer:** This is an independent open-source project. Not affiliated with, endorsed by, or sponsored by Esri. "ArcGIS" is a registered trademark of Esri.
 
-## What's new in v1.10.0
+## What's new in v1.11.0
+
+- **Broken reference scanner**: scan web maps, dashboards, and apps for unreachable service URLs. Catch broken layers before users report them.
+- **Stale content finder**: identify items not modified in N days with governance violation detection. Clean up portal bloat.
+- **Group content export**: export group items to an Enterprise .epk package for content migration between portals.
+- **Group content import**: import items from an .epk package into a target group.
+
+### What's new in v1.10.0
 
 - **Group lifecycle**: update, delete, and manage group members -- complete the CRUD loop for portal groups
 - **Folder deletion**: remove content folders (with warning about contents)
@@ -340,7 +347,21 @@ User: How many licenses do we have left?
 Agent: [calls list_licenses to show license allocation and usage]
 ```
 
-## Available Tools (60)
+### Scan for Broken References
+
+```
+User: Check if any layers in my web map are broken
+Agent: [calls scan_broken_references with the web map item ID]
+```
+
+### Find Stale Content
+
+```
+User: Show me items nobody has touched in over a year
+Agent: [calls find_stale_items with days_threshold=365]
+```
+
+## Available Tools (70)
 
 ### Discovery and Inspection
 
@@ -424,6 +445,15 @@ Agent: [calls list_licenses to show license allocation and usage]
 | `list_scheduled_tasks` | List all scheduled tasks in the organization (admin) |
 | `get_user_scheduled_tasks` | List scheduled tasks for a specific user |
 
+### Admin Problem Solvers (v1.11.0)
+
+| Tool | Description |
+|------|-------------|
+| `scan_broken_references` | Scan web maps/apps for unreachable service URLs (item or group-level) |
+| `find_stale_items` | Find items not modified in N days with governance violation detection |
+| `export_group_content` | Export group items to an .epk package for content migration (Enterprise only) |
+| `import_group_content` | Import items from an .epk package into a target group (Enterprise only) |
+
 ## Authentication Methods
 
 | Method | Pros | Cons |
@@ -497,7 +527,7 @@ Restricts which tools the AI client can see and invoke. When set, only the named
 MCP_ALLOWED_TOOLS=search_content,query_features,list_layers,describe_layer,portal_health
 ```
 
-When unset (the default), all 66 tools are available. Tools not on the list are invisible to the AI client and rejected if called directly.
+When unset (the default), all 70 tools are available. Tools not on the list are invisible to the AI client and rejected if called directly.
 
 ### Audit Logging (v1.9.0)
 
