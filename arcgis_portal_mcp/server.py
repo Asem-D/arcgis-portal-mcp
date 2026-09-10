@@ -2768,7 +2768,8 @@ def find_stale_items(
         owner: Filter by owner (empty = scan all). Respects MCP_ALLOWED_OWNERS.
         days_threshold: Items not modified in this many days are stale (default 180).
         min_views: Items with fewer views than this are stale (default 0).
-        item_types: Comma-separated types to scan (empty = all types).\        include_storage: Include item size in output (default true).
+        item_types: Comma-separated types to scan (empty = all types).
+        include_storage: Include item size in output (default true).
         max_items: Maximum items to scan (default 200, max 500).
     """
     client = _require_connected()
