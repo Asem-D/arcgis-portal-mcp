@@ -1,6 +1,6 @@
 # arcgis-portal-mcp
 
-**v1.11.0.** 70 tools for ArcGIS Enterprise Portal and ArcGIS Online.
+**v1.11.1.** 70 tools for ArcGIS Enterprise Portal and ArcGIS Online.
 
 A Model Context Protocol (MCP) server that gives AI assistants direct access to your ArcGIS content. Search, inspect, edit, publish, and admin through natural language.
 
@@ -8,7 +8,19 @@ Works with Claude Desktop, Cursor, VS Code Copilot, and any MCP-compatible clien
 
 > **Disclaimer:** This is an independent open-source project. Not affiliated with, endorsed by, or sponsored by Esri. "ArcGIS" is a registered trademark of Esri.
 
-## What's new in v1.11.0
+## What's new in v1.11.1
+
+- **Enterprise search fix**: `search_items("*")` now works on Enterprise portals that require `contentStatus=all`
+- **Auto-reconnect**: token expiry during long operations (stale scan, broken refs) triggers automatic re-auth
+- **Faster broken-ref scanning**: HEAD requests instead of GET, falls back on 405
+- **Better error diagnostics**: `admin_request` errors include `http_status` code; `server_status` shows auth method and token expiry
+- **`find_stale_items` optimization**: only fetches full item details for governance checks on items already classified stale
+- **Consistent field naming**: `full_name` everywhere (was `fullname` in `get_user_details`)
+- **`portal_health`** now shows `portal_url` and `connected_as`
+- **`search_content`** default `max_items` raised from 20 to 100
+- **`list_users`** includes `last_login_epoch` (raw ms) alongside formatted date
+
+### What's new in v1.11.0
 
 - **Broken reference scanner**: scan web maps, dashboards, and apps for unreachable service URLs. Catch broken layers before users report them.
 - **Stale content finder**: identify items not modified in N days with governance violation detection. Clean up portal bloat.

@@ -53,6 +53,7 @@ class ArcGISClient:
         self._username: str | None = None
         self._user_info: dict[str, Any] | None = None
         self._auth_method: str | None = None
+        self._reconnect_params: dict[str, str] = {}  # stored for auto-refresh
         self._session = requests.Session()
         # TLS verification: ON by default (MCP_TLS_VERIFY defaults to true).
         # Set MCP_TLS_VERIFY=false in .env for Enterprise portals with self-signed certs.
@@ -87,6 +88,21 @@ class ArcGISClient:
         if self.is_connected:
             return self._token
         return None
+
+    def _try_reconnect(self) -> bool:
+        """Attempt to re-authenticate using stored credentials.
+
+        Returns True if reconnection succeeded, False otherwise.
+        """
+        if not self._reconnect_params:
+            return False
+        try:
+            self.connect_username_password(**self._reconnect_params)
+            logger.info("Auto-reconnected to portal")
+            return True
+        except Exception as e:
+            logger.warning("Auto-reconnect failed: %s", e)
+            return False
 
     # ------------------------------------------------------------------
     # Authentication
@@ -312,6 +328,11 @@ class ArcGISClient:
         self._username = username
         self._user_info = {"username": username}
         self._auth_method = "generateToken"
+        self._reconnect_params = {
+            "portal_url": portal_url,
+            "username": username,
+            "password": password,
+        }
 
         logger.info(
             "Connected as %s via generateToken (expires in %ds)",
@@ -349,7 +370,8 @@ class ArcGISClient:
         return self._sharing_request(endpoint, params=params, method=method)
 
     def admin_request(
-        self, endpoint: str, params: dict[str, Any] | None = None, method: str = "GET"
+        self, endpoint: str, params: dict[str, Any] | None = None,
+        method: str = "GET", _retried: bool = False,
     ) -> dict[str, Any] | None:
         """Make a request to the Portal Admin API (requires admin privileges).
 
@@ -366,6 +388,11 @@ class ArcGISClient:
             return None
 
         if not self.is_connected:
+            # Try auto-reconnect before giving up
+            if not _retried and self._try_reconnect():
+                return self.admin_request(
+                    endpoint, params=params, method=method, _retried=True,
+                )
             logger.error("Token expired, reconnect first")
             return None
 
@@ -384,10 +411,26 @@ class ArcGISClient:
             data = resp.json()
 
             if "error" in data:
-                logger.warning("Admin API error at %s: %s", endpoint, data["error"])
-                return {"error": data["error"]}
+                error = data["error"]
+                # Check for auth errors
+                error_code = error.get("code") if isinstance(error, dict) else 0
+                is_auth_error = (
+                    error_code in (498, 499)
+                    or "Invalid token" in str(error)
+                    or "token expired" in str(error).lower()
+                )
+                if is_auth_error and not _retried and self._try_reconnect():
+                    return self.admin_request(
+                        endpoint, params=params, method=method, _retried=True,
+                    )
+                logger.warning("Admin API error at %s: %s", endpoint, error)
+                return {"error": error}
 
             return data
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response is not None else 0
+            logger.error("Admin API HTTP %d at %s: %s", status, endpoint, e)
+            return {"error": str(e), "http_status": status}
         except requests.exceptions.RequestException as e:
             logger.error("Admin API request failed: %s", e)
             return {"error": str(e)}
@@ -444,6 +487,7 @@ class ArcGISClient:
                     "num": page_size,
                     "sortField": "modified",
                     "sortOrder": "desc",
+                    "contentStatus": "all",
                 },
             )
 
@@ -499,12 +543,13 @@ class ArcGISClient:
             for u in user_list:
                 users.append({
                     "username": u.get("username"),
-                    "full_name": u.get("fullName", ""),
+                    "full_name": u.get("fullName") or "",
                     "email": u.get("email", ""),
                     "role": u.get("role", ""),
                     "level": u.get("level", ""),
                     "disabled": u.get("disabled", False),
                     "last_login": _epoch_to_str(u.get("lastLogin")),
+                    "last_login_epoch": u.get("lastLogin"),
                     "created": _epoch_to_str(u.get("created")),
                     "user_type": u.get("userType", ""),
                 })
@@ -883,7 +928,7 @@ class ArcGISClient:
         return {
             "status": "ok",
             "username": result.get("username", ""),
-            "fullname": result.get("fullName", ""),
+            "full_name": result.get("fullName") or "",
             "email": result.get("email", ""),
             "role": result.get("role", ""),
             "role_id": result.get("roleId", ""),
@@ -2038,6 +2083,7 @@ class ArcGISClient:
         params: dict[str, Any] | None = None,
         token: str | None = None,
         method: str = "GET",
+        _retried: bool = False,
     ) -> dict[str, Any] | None:
         """Internal Sharing API request."""
         url = f"{self.sharing_url}{endpoint}"
@@ -2057,9 +2103,23 @@ class ArcGISClient:
             resp.raise_for_status()
             data = resp.json()
 
-            if "error" in data:
-                logger.warning("Sharing API error at %s: %s", endpoint, data["error"])
-                return {"error": data["error"]}
+            # Check for auth errors (code 498 = invalid token, or error message)
+            error = data.get("error")
+            if error:
+                error_code = error.get("code") if isinstance(error, dict) else 0
+                error_msg = error.get("message", str(error)) if isinstance(error, dict) else str(error)
+                is_auth_error = (
+                    error_code in (498, 499)
+                    or "Invalid token" in str(error_msg)
+                    or "token expired" in str(error_msg).lower()
+                )
+                if is_auth_error and not _retried and self._try_reconnect():
+                    return self._sharing_request(
+                        endpoint, params=params, token=token,
+                        method=method, _retried=True,
+                    )
+                logger.warning("Sharing API error at %s: %s", endpoint, error)
+                return {"error": error}
 
             return data
         except requests.exceptions.RequestException as e:
@@ -2944,7 +3004,10 @@ class ArcGISClient:
         return urls
 
     def _ping_url(self, url: str, timeout: int = 5) -> dict[str, Any]:
-        """Check if a service URL is reachable via HTTP GET.
+        """Check if a service URL is reachable via HTTP HEAD.
+
+        Uses HEAD first (no body download), falls back to GET if
+        the server doesn't support HEAD.
 
         Args:
             url: The service URL to check.
@@ -2956,10 +3019,16 @@ class ArcGISClient:
         import time
         start = time.monotonic()
         try:
-            resp = self._session.get(
-                url, params={"f": "json"}, timeout=timeout,
-                allow_redirects=True,
+            # Try HEAD first (no body download, faster)
+            resp = self._session.head(
+                url, timeout=timeout, allow_redirects=True,
             )
+            if resp.status_code == 405:
+                # Method not allowed, fall back to GET
+                resp = self._session.get(
+                    url, params={"f": "json"}, timeout=timeout,
+                    allow_redirects=True,
+                )
             latency = int((time.monotonic() - start) * 1000)
             status = "healthy" if resp.status_code < 400 else "unreachable"
             result: dict[str, Any] = {
@@ -3255,36 +3324,48 @@ class ArcGISClient:
             total_stale_storage = 0.0
 
             for item in all_items[:max_items]:
-                details = self.get_item_details(item.get("id", ""))
-                if not details or "error" in details:
-                    continue
+                # Phase 1: Classify staleness using search results directly
+                # (modified, num_views, size, access are all in the search response)
                 merged = {
                     **item,
-                    "access": details.get("access", item.get("access", "private")),
-                    "description": details.get("description", ""),
-                    "snippet": details.get("snippet", ""),
-                    "tags": details.get("tags", []),
-                    "num_views": details.get("numViews", item.get("num_views", 0)),
-                    "size": details.get("size", item.get("size", 0)),
-                    "modified": _epoch_to_str(details.get("modified")),
+                    "modified": item.get("modified", ""),
                 }
                 classification = self._classify_staleness(
                     merged, days_threshold, min_views,
                 )
                 item_type = merged.get("type", "Unknown")
                 type_counts[item_type] = type_counts.get(item_type, 0) + 1
+
                 if classification["is_stale"]:
+                    # Phase 2: Only fetch full details for governance checks
+                    # on items that are actually stale
+                    details = self.get_item_details(item.get("id", ""))
+                    if details and "error" not in details:
+                        classification["governance"] = {
+                            "has_description": bool(details.get("description", "")),
+                            "has_tags": bool(details.get("tags", [])),
+                            "has_snippet": bool(details.get("snippet", "")),
+                            "non_compliant": not bool(
+                                details.get("description", "")
+                            ) or not bool(details.get("tags", []))
+                            or not bool(details.get("snippet", "")),
+                            "issues": (
+                                (["missing_description"] if not details.get("description") else [])
+                                + (["missing_tags"] if not details.get("tags") else [])
+                                + (["missing_snippet"] if not details.get("snippet") else [])
+                            ),
+                        }
                     stale_items.append(classification)
                     total_stale_storage += classification["size_mb"]
-                if classification["governance"]["non_compliant"]:
-                    governance_violations.append({
-                        "item_id": classification["item_id"],
-                        "title": classification["title"],
-                        "type": item_type,
-                        "owner": classification["owner"],
-                        "access": classification["access"],
-                        "issues": classification["governance"]["issues"],
-                    })
+                    if classification["governance"]["non_compliant"]:
+                        governance_violations.append({
+                            "item_id": classification["item_id"],
+                            "title": classification["title"],
+                            "type": item_type,
+                            "owner": classification["owner"],
+                            "access": classification["access"],
+                            "issues": classification["governance"]["issues"],
+                        })
 
             stale_items.sort(key=lambda x: x["days_stale"], reverse=True)
             by_type = dict(

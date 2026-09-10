@@ -609,7 +609,7 @@ def search_content(
     query: str = "*",
     item_type: str | None = None,
     owner: str | None = None,
-    max_items: int = 20,
+    max_items: int = 100,
 ) -> dict[str, Any]:
     """Search for content (items) in the connected ArcGIS Portal.
 
@@ -621,7 +621,7 @@ def search_content(
         item_type: Filter by item type (e.g. "Feature Service", "Web Map",
                    "Map Service", "Image Service", "Dashboard")
         owner: Filter by item owner username
-        max_items: Maximum items to return (default 20, max 1000)
+        max_items: Maximum items to return (default 100, max 1000)
     """
     client = _require_connected()
     if not client:
@@ -1011,10 +1011,12 @@ def portal_health() -> dict[str, Any]:
         result: dict[str, Any] = {
             "status": "ok",
             "portal_name": portal_info.get("name", "N/A") if portal_info else "N/A",
+            "portal_url": client.portal_url or "N/A",
             "portal_version": portal_info.get("portalVersion", "N/A") if portal_info else "N/A",
             "org_id": portal_info.get("id", "N/A") if portal_info else "N/A",
             "org_name": portal_info.get("organizationName", "N/A") if portal_info else "N/A",
             "user_license_type": portal_info.get("userLicenseType", "N/A") if portal_info else "N/A",
+            "connected_as": client.username or "N/A",
         }
 
         if health and "error" not in health:
@@ -1033,12 +1035,19 @@ def portal_health() -> dict[str, Any]:
 def server_status() -> dict[str, Any]:
     """Check MCP server status: connection state, version, active portal."""
     client = _get_client()
+    token_expiry = None
+    if client._token_expires:
+        import time as _t
+        remaining = client._token_expires - _t.time()
+        token_expiry = f"{int(remaining)}s remaining" if remaining > 0 else "expired"
     return {
         "status": "ok",
         "version": __version__,
         "connected": client.is_connected,
         "portal_url": client.portal_url,
         "username": client.username,
+        "auth_method": client._auth_method,
+        "token_status": token_expiry or "no token",
     }
 
 

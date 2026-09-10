@@ -331,3 +331,5 @@ Fix:
 - Use async GP jobs (`submit_gp_job` + `get_gp_job_status`) for >5 min tasks
 - For >50 items, process batch operations in chunks
 - Item IDs are stable: they don't change when items are renamed or moved
+- **Delete a folder safely**: `list_folders` first to get the folder ID, then `delete_folder(folder_id)`
+  (deleting a folder also deletes all items inside it)

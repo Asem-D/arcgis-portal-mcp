@@ -1,8 +1,8 @@
 # arcgis-portal-mcp Enhancement Plan
 
 **Date**: August 2026
-**Current version**: v1.9.0 (60 tools)
-**Last updated**: 2026-08-21
+**Current version**: v1.11.1 (70 tools)
+**Last updated**: 2026-09-10
 
 ---
 
@@ -118,6 +118,44 @@ Security hardening release. No new tools added, but three cross-cutting features
 Architecture: `_install_guards()` wraps `mcp._tool_manager.call_tool` and `list_tools` in `main()` before `mcp.run()`. Zero changes to existing tool functions.
 
 Also fixed pre-existing lint issues: duplicate `get_item_data`, unused `items` variable, dead code, misplaced import.
+
+### v1.11.1 (September 2026) -- SHIPPED
+
+Bugfix and robustness release. No new tools, but quality-of-life improvements across 7 existing tools.
+
+| # | Issue | Fix |
+|---|-------|-----|
+| 1 | `search_items("*")` returns 0 on Enterprise portals | Added `contentStatus=all` to search params |
+| 2 | `list_users` returns null for `fullName` | Null-safe fallback to empty string |
+| 3 | `find_stale_items` calls `get_item_details` per item (200+ HTTP calls) | Only fetch full details for governance checks on items already classified stale |
+| 4 | `list_users` uses `full_name` but `get_user_details` uses `fullname` | Standardized to `full_name` everywhere |
+| 5 | `portal_health` missing portal URL | Added `portal_url` and `connected_as` fields |
+| 6 | `search_content` default max_items=20 | Increased to 100 |
+| 7 | `admin_request` errors don't include HTTP status code | Added `http_status` field to error responses |
+| 8 | No token auto-refresh during long operations | Added `_try_reconnect()` with stored credentials; auto-retry once on auth errors |
+| 9 | `_ping_url` uses GET (downloads full response body) | Uses HEAD first, falls back to GET on 405 |
+| 10 | `list_users` returns formatted date only | Added `last_login_epoch` (raw ms) alongside formatted string |
+| 11 | `server_status` doesn't show who you're connected as | Added `auth_method` and `token_status` fields |
+| 12 | SKILL.md missing `list_folders` -> `delete_folder` workflow | Added tip in SKILL.md |
+
+---
+
+### Backlog / Deferred Enhancements
+
+Valid improvements identified during community review (September 2026). Not yet scheduled for a specific release.
+
+| # | Issue | Why Deferred |
+|---|-------|-------------|
+| 3 | Custom roles show role ID not name | Requires extra API call to `/portals/self/roles` + lookup map; valid but adds latency |
+| 5 | No admin search endpoint in `list_users` | Feature request (`/portaladmin/searchUsers`); needs `search_users_admin` tool design |
+| 6 | `get_user_details` uses community endpoint | Needs try-admin-then-fallback-to-community logic; defer to avoid breaking non-admin usage |
+| 7 | `portal_usage` returns 404 on some Enterprise versions | Needs version detection + fallback endpoint discovery |
+| 8 | `search_items` doesn't expose `start` parameter | Feature request for explicit pagination control |
+| 9 | `scan_broken_references` missing popup/dashboard URLs | Complex URL extraction across popups, print templates, feature actions, dashboard data sources |
+| 19 | No rate limiting / request throttling | Configurable delay between requests (e.g. `MCP_REQUEST_DELAY_MS`) |
+| 20 | Query special character escaping | Low risk currently; needs validation/sanitization for `+`, `&`, `(`, `)` in search queries |
+
+---
 
 ### v2.0.0 (target: Q2 2027) -- PLANNED
 
