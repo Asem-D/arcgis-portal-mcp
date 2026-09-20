@@ -8,7 +8,15 @@ Works with Claude Desktop, Cursor, VS Code Copilot, and any MCP-compatible clien
 
 > **Disclaimer:** This is an independent open-source project. Not affiliated with, endorsed by, or sponsored by Esri. "ArcGIS" is a registered trademark of Esri.
 
-## What's new in v1.11.1
+## What's new in v1.12.0
+
+- **`portal_inventory`**: scan portal content with item counts by type, owner, age, and storage. Get a bird's-eye view of your organization's content.
+- **`bulk_reassign_ownership`**: transfer content ownership between users in bulk. Essential for offboarding and team changes.
+- **`offboard_user**: offboard a user by transferring their content and removing them from groups.
+- **AGOL fix**: `portal_inventory` now correctly queries ArcGIS Online organizations (was returning 0 items).
+- **Reliable auto-connect**: credentials are always read fresh from `.env`, fixing stale-auth issues after gateway restarts.
+
+### What's new in v1.11.1
 
 - **Enterprise search fix**: `search_items("*")` now works on Enterprise portals that require `contentStatus=all`
 - **Auto-reconnect**: token expiry during long operations (stale scan, broken refs) triggers automatic re-auth
