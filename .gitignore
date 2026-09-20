@@ -32,6 +32,7 @@ Thumbs.db
 .env
 *.token
 test_*.py
+!tests/test_*.py
 _share.py
 _test_admin_token.py
 

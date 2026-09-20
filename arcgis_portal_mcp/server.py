@@ -224,6 +224,8 @@ _WRITE_TOOLS: set[str] = {
     "sync_collaboration",
     # Group content migration
     "import_group_content",
+    # v1.12.0: User lifecycle & bulk operations
+    "bulk_reassign_ownership", "offboard_user",
 }
 
 
@@ -258,7 +260,6 @@ def _write_audit_entry(
         logger.warning("Failed to write audit entry: %s", exc)
 
 
-_env_cache: dict[str, str] | None = None
 
 
 def _find_env_path() -> Path | None:
@@ -319,7 +320,9 @@ def _load_env_file(env_path: Path) -> dict[str, str]:
             # Don't override existing env vars (real env takes precedence)
             if key not in os.environ:
                 os.environ[key] = value
-            env_vars[key] = os.environ[key]
+            # Always store the .env file value in env_vars, even if os.environ
+            # already had the key (parent process inheritance can be stale).
+            env_vars[key] = value
 
     logger.info(
         "Loaded %d env var(s) from %s",
@@ -339,25 +342,13 @@ def _load_env() -> dict[str, str]:
 
     Returns a dict of KEY=VALUE pairs found in the .env file.
     Existing environment variables take precedence (not overwritten).
-    Results are cached after the first call.
+    Always reads fresh from disk — no caching.
     """
-    global _env_cache
-    if _env_cache is not None:
-        return _env_cache
-
     env_path = _find_env_path()
     if env_path is None:
-        _env_cache = {}
         return {}
 
-    _env_cache = _load_env_file(env_path)
-    return _env_cache
-
-
-def _reset_env_cache() -> None:
-    """Reset the env cache. For testing only."""
-    global _env_cache
-    _env_cache = None
+    return _load_env_file(env_path)
 
 
 def _auto_connect() -> tuple[bool, str | None]:
@@ -511,12 +502,13 @@ def connect_portal(
                 }
 
         elif auth_method == "username_password":
+            env = _load_env()
             if not username:
-                username = os.environ.get("username") or os.environ.get("ARCGIS_USERNAME")
+                username = env.get("username") or os.environ.get("ARCGIS_USERNAME")
             if not password:
-                password = os.environ.get("password") or os.environ.get("ARCGIS_PASSWORD")
+                password = env.get("password") or os.environ.get("ARCGIS_PASSWORD")
             if not portal_url:
-                portal_url = os.environ.get("portal_url") or os.environ.get("PORTAL_URL")
+                portal_url = env.get("portal_url") or os.environ.get("PORTAL_URL")
 
             if not all([portal_url, username, password]):
                 return {
@@ -3218,5 +3210,130 @@ def get_user_scheduled_tasks(username: str) -> dict[str, Any]:
     try:
         tasks = client.get_user_scheduled_tasks(username)
         return {"status": "ok", "count": len(tasks), "tasks": tasks}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# =========================================================================
+# v1.12.0: High-Value Admin Workflow Tools
+# =========================================================================
+
+
+@mcp.tool()
+def bulk_reassign_ownership(
+    source_owner: str,
+    target_owner: str,
+    item_types: str = "",
+    folder: str = "",
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    """Transfer ALL items from one user to another.
+
+    Finds every item owned by source_owner (optionally filtered by type
+    and/or folder), then reassigns ownership to target_owner in bulk.
+    Use dry_run=true first to preview what would be transferred.
+
+    Args:
+        source_owner: Current owner whose items to transfer.
+        target_owner: New owner to receive the items.
+        item_types: Comma-separated types to filter (empty = all types).
+        folder: Folder name to filter (empty = all folders + root).
+        dry_run: Preview only, no changes made (default true).
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    try:
+        result = client.bulk_reassign_ownership(
+            source_owner=source_owner,
+            target_owner=target_owner,
+            item_types=item_types,
+            folder=folder,
+            dry_run=dry_run,
+        )
+        if "error" in result:
+            return {"status": "error", "error": result["error"]}
+        return {"status": "ok", **result}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def portal_inventory(
+    owner: str = "",
+    include_storage: bool = True,
+    include_owners: bool = True,
+    include_age_distribution: bool = True,
+) -> dict[str, Any]:
+    """Generate a structured inventory of portal content.
+
+    Provides counts by type, by owner, by access level, and age
+    distribution. Useful for governance audits, storage planning,
+    and understanding what's in your portal.
+
+    Args:
+        owner: Filter by owner (empty = scan all content).
+        include_storage: Include total storage in MB (default true).
+        include_owners: Include per-owner item counts (default true).
+        include_age_distribution: Include age buckets (default true).
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    try:
+        result = client.portal_inventory(
+            owner=owner,
+            include_storage=include_storage,
+            include_owners=include_owners,
+            include_age_distribution=include_age_distribution,
+        )
+        return {"status": "ok", **result}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@mcp.tool()
+def offboard_user(
+    username: str,
+    target_owner: str,
+    disable_account: bool = True,
+    remove_from_groups: bool = True,
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    """Complete user offboarding workflow.
+
+    Chains multiple operations into a single call:
+    1. Discover all items owned by the user
+    2. Discover all groups the user belongs to
+    3. Transfer all items to the target owner
+    4. Remove user from all non-owned groups
+    5. Disable the user account
+
+    Use dry_run=true first to preview what will happen.
+
+    Args:
+        username: The user to offboard.
+        target_owner: Who receives the user's content.
+        disable_account: Disable the user account after transfer (default true).
+        remove_from_groups: Remove user from all groups (default true).
+        dry_run: Preview only, no changes made (default true).
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    try:
+        result = client.offboard_user(
+            username=username,
+            target_owner=target_owner,
+            disable_account=disable_account,
+            remove_from_groups=remove_from_groups,
+            dry_run=dry_run,
+        )
+        if "error" in result:
+            return {"status": "error", "error": result["error"]}
+        return {"status": "ok", **result}
     except Exception as e:
         return {"status": "error", "error": str(e)}

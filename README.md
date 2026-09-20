@@ -1,6 +1,6 @@
 # arcgis-portal-mcp
 
-**v1.11.1.** 70 tools for ArcGIS Enterprise Portal and ArcGIS Online.
+**v1.12.0.** 73 tools for ArcGIS Enterprise Portal and ArcGIS Online.
 
 A Model Context Protocol (MCP) server that gives AI assistants direct access to your ArcGIS content. Search, inspect, edit, publish, and admin through natural language.
 
@@ -373,7 +373,7 @@ User: Show me items nobody has touched in over a year
 Agent: [calls find_stale_items with days_threshold=365]
 ```
 
-## Available Tools (70)
+## Available Tools (73)
 
 ### Discovery and Inspection
 
@@ -389,6 +389,8 @@ Agent: [calls find_stale_items with days_threshold=365]
 | `list_groups` | List portal groups with access levels |
 | `portal_health` | Check portal health and system status |
 | `server_status` | Check MCP server connection state |
+| `search_users` | Search portal users by name, email, or username |
+| `check_service_health` | Ping a service endpoint and return status, latency, version, and capabilities |
 
 ### Feature CRUD, User/Group and Content Management
 
@@ -399,13 +401,20 @@ Agent: [calls find_stale_items with days_threshold=365]
 | `delete_features` | Delete features by OBJECTIDs or WHERE clause |
 | `get_user_details` | Get detailed user profile (role, privileges, storage, last login) |
 | `create_group` | Create a new group with access control |
+| `update_group` | Update group properties (title, description, visibility) |
+| `delete_group` | Delete a group from the portal |
+| `list_group_users` | List users in a specific group |
 | `invite_to_group` | Invite users to a group with a role assignment |
+| `remove_from_group` | Remove users from a group |
 | `update_item` | Update item properties (title, description, tags, access) |
 | `delete_item` | Delete an item from the portal |
 | `share_item` | Share/unshare an item with everyone, org, or specific groups |
 | `get_item_data` | Read item data (web map JSON, app config, feature collections) |
 | `create_folder` | Create a content folder for organizing items |
 | `list_folders` | List content folders for a user |
+| `delete_folder` | Delete a content folder (and all items it contains) |
+| `clone_item` | Clone an item within the same portal |
+| `move_items` | Reassign item ownership between portal users |
 
 ### Publishing, Geoprocessing, Admin and Batch
 
@@ -432,6 +441,9 @@ Agent: [calls find_stale_items with days_threshold=365]
 | `scan_service_dependencies` | Scan feature service dependencies: broken links, missing sources |
 | `analyze_item_impact` | Analyze item impact: what breaks if an item is deleted |
 | `get_usage_analytics` | Get portal usage analytics: API calls, active users, storage trends |
+| `portal_inventory` | Scan portal content: item counts by type, owner, age, and storage |
+| `bulk_reassign_ownership` | Bulk transfer content ownership between users |
+| `offboard_user` | Offboard a user: transfer content, remove from groups |
 
 ### Webhooks and Logs (v1.7.0)
 
@@ -539,7 +551,7 @@ Restricts which tools the AI client can see and invoke. When set, only the named
 MCP_ALLOWED_TOOLS=search_content,query_features,list_layers,describe_layer,portal_health
 ```
 
-When unset (the default), all 70 tools are available. Tools not on the list are invisible to the AI client and rejected if called directly.
+When unset (the default), all 73 tools are available. Tools not on the list are invisible to the AI client and rejected if called directly.
 
 ### Audit Logging (v1.9.0)
 

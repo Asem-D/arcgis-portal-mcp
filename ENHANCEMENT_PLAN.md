@@ -1,8 +1,8 @@
 # arcgis-portal-mcp Enhancement Plan
 
 **Date**: August 2026
-**Current version**: v1.11.1 (70 tools)
-**Last updated**: 2026-09-10
+**Current version**: v1.12.0 (73 tools)
+**Last updated**: 2026-10-01
 
 ---
 
@@ -167,8 +167,7 @@ Feature Service Sync release. The high-impact release for field ops and distribu
 | 2 | `sync_replica` | Bidirectional data sync between portal and replicas |
 | 3 | `add_item_relationship` | CRUD for item dependencies (we have explore, not create/delete) |
 | 4 | `remove_item_relationship` | Clean up dependency chains |
-| 5 | `export_group_content` | Content migration (Desktop Style/Solution, Enterprise 12.1+) |
-| 6 | AI Services management | Enable/Disable/Status for Enterprise 12.0+ AI assistants |
+| 5 | AI Services management | Enable/Disable/Status for Enterprise 12.0+ AI assistants |
 
 ### v2.1.0 (target: Q3 2027) -- PLANNED
 

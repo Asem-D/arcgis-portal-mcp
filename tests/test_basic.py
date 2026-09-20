@@ -19,7 +19,7 @@ from arcgis_portal_mcp.server import _validate_where_clause, mcp
 
 def test_version():
     """Version should match pyproject.toml."""
-    assert __version__ == "1.11.1"
+    assert __version__ == "1.12.0"
 
 
 def test_client_init():
@@ -47,13 +47,13 @@ def test_client_connect_bad_token():
 
 
 def test_server_tools_count():
-    """Server should expose exactly 70 tools."""
+    """Server should expose exactly 73 tools."""
     tool_names = mcp._tool_manager._tools.keys()
-    assert len(list(tool_names)) == 70
+    assert len(list(tool_names)) == 73
 
 
 def test_server_tool_names():
-    """All 70 tools should be present by name."""
+    """All 73 tools should be present by name."""
     expected = {
         # Discovery / connection
         "connect_portal", "search_content", "get_item_details",
@@ -88,6 +88,8 @@ def test_server_tool_names():
         # Admin problem solvers (v1.11.0)
         "scan_broken_references", "find_stale_items",
         "export_group_content", "import_group_content",
+        # User lifecycle & portal inventory (v1.12.0)
+        "bulk_reassign_ownership", "portal_inventory", "offboard_user",
     }
     actual = set(mcp._tool_manager._tools.keys())
     assert actual == expected, f"Missing: {expected - actual}, Extra: {actual - expected}"
@@ -2080,3 +2082,270 @@ def test_import_group_content_in_write_tools():
     """import_group_content should be in _WRITE_TOOLS for read-only protection."""
     from arcgis_portal_mcp.server import _WRITE_TOOLS
     assert "import_group_content" in _WRITE_TOOLS
+
+
+# ------------------------------------------------------------------
+# v1.12.0: bulk_reassign_ownership
+# ------------------------------------------------------------------
+
+
+def test_bulk_reassign_ownership_tool_exists():
+    """bulk_reassign_ownership should be registered as a tool."""
+    assert "bulk_reassign_ownership" in mcp._tool_manager._tools
+
+
+def test_bulk_reassign_ownership_not_connected():
+    """bulk_reassign_ownership should return error when not connected."""
+    from arcgis_portal_mcp.server import bulk_reassign_ownership
+    result = bulk_reassign_ownership(
+        source_owner="alice", target_owner="bob", dry_run=True,
+    )
+    assert result["status"] == "error"
+    assert "Not connected" in result["error"]
+
+
+def test_bulk_reassign_ownership_dry_run():
+    """bulk_reassign_ownership dry_run should preview without transferring."""
+    from arcgis_portal_mcp.server import bulk_reassign_ownership
+
+    mock_client = MagicMock()
+    mock_client.bulk_reassign_ownership.return_value = {
+        "dry_run": True,
+        "source_owner": "alice",
+        "target_owner": "bob",
+        "items_found": 2,
+        "items": [
+            {"id": "i1", "title": "A", "type": "Feature Service"},
+            {"id": "i2", "title": "B", "type": "Web Map"},
+        ],
+        "message": "Would transfer 2 items.",
+    }
+    with patch("arcgis_portal_mcp.server._require_connected", return_value=mock_client):
+        result = bulk_reassign_ownership(
+            source_owner="alice", target_owner="bob", dry_run=True,
+        )
+        assert result["status"] == "ok"
+        assert result["dry_run"] is True
+        assert result["items_found"] == 2
+
+
+def test_bulk_reassign_ownership_in_write_tools():
+    """bulk_reassign_ownership should be in _WRITE_TOOLS."""
+    from arcgis_portal_mcp.server import _WRITE_TOOLS
+    assert "bulk_reassign_ownership" in _WRITE_TOOLS
+
+
+# ------------------------------------------------------------------
+# v1.12.0: portal_inventory
+# ------------------------------------------------------------------
+
+
+def test_portal_inventory_tool_exists():
+    """portal_inventory should be registered as a tool."""
+    assert "portal_inventory" in mcp._tool_manager._tools
+
+
+def test_portal_inventory_not_connected():
+    """portal_inventory should return error when not connected."""
+    from arcgis_portal_mcp.server import portal_inventory
+    result = portal_inventory()
+    assert result["status"] == "error"
+    assert "Not connected" in result["error"]
+
+
+def test_portal_inventory_empty():
+    """portal_inventory with no items should return zero counts."""
+    from arcgis_portal_mcp.server import portal_inventory
+
+    mock_client = MagicMock()
+    mock_client.portal_inventory.return_value = {
+        "summary": {"total_items": 0, "total_storage_mb": 0.0, "owner_filter": "(all)", "scan_limit": 1000, "truncated": False},
+        "by_type": {},
+        "by_access": {},
+    }
+    with patch("arcgis_portal_mcp.server._require_connected", return_value=mock_client):
+        result = portal_inventory()
+        assert result["status"] == "ok"
+        assert result["summary"]["total_items"] == 0
+
+
+def test_portal_inventory_groups_by_type():
+    """portal_inventory should group items by type correctly."""
+    from arcgis_portal_mcp.server import portal_inventory
+
+    mock_client = MagicMock()
+    mock_client.portal_inventory.return_value = {
+        "summary": {"total_items": 3, "total_storage_mb": 0.003, "owner_filter": "(all)", "scan_limit": 1000, "truncated": False},
+        "by_type": {"Feature Service": 2, "Web Map": 1},
+        "by_owner": {"alice": 2, "bob": 1},
+        "by_access": {"unknown": 3},
+    }
+    with patch("arcgis_portal_mcp.server._require_connected", return_value=mock_client):
+        result = portal_inventory()
+        assert result["status"] == "ok"
+        assert result["summary"]["total_items"] == 3
+        assert result["by_type"]["Feature Service"] == 2
+        assert result["by_type"]["Web Map"] == 1
+
+
+# ------------------------------------------------------------------
+# v1.12.0: offboard_user
+# ------------------------------------------------------------------
+
+
+def test_offboard_user_tool_exists():
+    """offboard_user should be registered as a tool."""
+    assert "offboard_user" in mcp._tool_manager._tools
+
+
+def test_offboard_user_not_connected():
+    """offboard_user should return error when not connected."""
+    from arcgis_portal_mcp.server import offboard_user
+    result = offboard_user(username="alice", target_owner="bob")
+    assert result["status"] == "error"
+    assert "Not connected" in result["error"]
+
+
+def test_offboard_user_dry_run():
+    """offboard_user dry_run should preview without making changes."""
+    from arcgis_portal_mcp.server import offboard_user
+
+    mock_client = MagicMock()
+    mock_client.offboard_user.return_value = {
+        "dry_run": True,
+        "username": "alice",
+        "target_owner": "bob",
+        "steps": [
+            {"step": 1, "action": "discover_items", "items_found": 1, "items": [{"id": "i1", "title": "Item 1", "type": "Feature Service"}]},
+            {"step": 2, "action": "discover_groups", "groups_found": 1, "groups_removable": 1, "groups_owned_skipped": 0, "groups": [{"id": "g1", "title": "Group A", "owner": "admin"}]},
+        ],
+        "message": "Preview only.",
+    }
+    with patch("arcgis_portal_mcp.server._require_connected", return_value=mock_client):
+        result = offboard_user(
+            username="alice", target_owner="bob", dry_run=True,
+        )
+        assert result["status"] == "ok"
+        assert result["dry_run"] is True
+        assert result["steps"][0]["items_found"] == 1
+        assert result["steps"][1]["groups_found"] == 1
+
+
+def test_offboard_user_in_write_tools():
+    """offboard_user should be in _WRITE_TOOLS."""
+    from arcgis_portal_mcp.server import _WRITE_TOOLS
+    assert "offboard_user" in _WRITE_TOOLS
+
+
+# ------------------------------------------------------------------
+# v1.12.0: Client methods
+# ------------------------------------------------------------------
+
+
+def test_client_list_user_groups():
+    """list_user_groups should return group list for a user."""
+    client = ArcGISClient()
+    with patch.object(client, "_sharing_request", return_value={
+        "groups": [{"id": "g1", "title": "Analysts"}],
+        "total": 1,
+    }):
+        groups = client.list_user_groups("alice")
+        assert len(groups) == 1
+        assert groups[0]["id"] == "g1"
+
+
+def test_client_list_user_groups_empty():
+    """list_user_groups should return empty list on error."""
+    client = ArcGISClient()
+    with patch.object(client, "_sharing_request", return_value={"error": "fail"}):
+        groups = client.list_user_groups("alice")
+        assert groups == []
+
+
+def test_client_update_user_disable():
+    """update_user with disabled=True should call the API."""
+    client = ArcGISClient()
+    with patch.object(client, "_sharing_request", return_value={"success": True}) as mock_req:
+        result = client.update_user("alice", disabled=True)
+        assert result["success"] is True
+        assert "status" in result["updated_fields"]
+        mock_req.assert_called_once()
+
+
+def test_client_update_user_no_params():
+    """update_user with no params should return error."""
+    client = ArcGISClient()
+    result = client.update_user("alice")
+    assert "error" in result
+
+
+def test_client_bulk_reassign_ownership_dry_run():
+    """bulk_reassign_ownership dry_run should not call move_items."""
+    client = ArcGISClient()
+    with patch.object(client, "search_items", return_value=[
+        {"id": "i1", "title": "A", "type": "Feature Service"},
+    ]):
+        with patch.object(client, "move_items") as mock_move:
+            result = client.bulk_reassign_ownership("alice", "bob", dry_run=True)
+            assert result["dry_run"] is True
+            assert result["items_found"] == 1
+            mock_move.assert_not_called()
+
+
+def test_client_bulk_reassign_ownership_execute():
+    """bulk_reassign_ownership with dry_run=False should call move_items."""
+    client = ArcGISClient()
+    with patch.object(client, "search_items", return_value=[
+        {"id": "i1", "title": "A", "type": "Feature Service"},
+    ]):
+        with patch.object(client, "move_items", return_value={
+            "succeeded_count": 1, "failed_count": 0,
+        }) as mock_move:
+            result = client.bulk_reassign_ownership("alice", "bob", dry_run=False)
+            assert result["dry_run"] is False
+            mock_move.assert_called_once()
+
+
+def test_client_portal_inventory_empty():
+    """portal_inventory with no items should return zero counts."""
+    client = ArcGISClient()
+    with patch.object(client, "search_items", return_value=[]):
+        result = client.portal_inventory()
+        assert result["summary"]["total_items"] == 0
+
+
+def test_client_portal_inventory_type_counts():
+    """portal_inventory should count types correctly."""
+    client = ArcGISClient()
+    items = [
+        {"id": "1", "title": "A", "type": "Feature Service", "owner": "alice", "size": 100, "modified": "2026-09-01 10:00"},
+        {"id": "2", "title": "B", "type": "Web Map", "owner": "bob", "size": 200, "modified": "2026-09-01 10:00"},
+    ]
+    with patch.object(client, "search_items", return_value=items):
+        result = client.portal_inventory()
+        assert result["by_type"]["Feature Service"] == 1
+        assert result["by_type"]["Web Map"] == 1
+
+
+def test_client_offboard_user_dry_run():
+    """offboard_user dry_run should discover items/groups without transferring."""
+    client = ArcGISClient()
+    with patch.object(client, "get_user_details", return_value={"username": "alice"}):
+        with patch.object(client, "search_items", return_value=[
+            {"id": "i1", "title": "Item 1", "type": "Feature Service"},
+        ]):
+            with patch.object(client, "list_user_groups", return_value=[
+                {"id": "g1", "title": "Group", "owner": "admin"},
+            ]):
+                with patch.object(client, "move_items") as mock_move:
+                    result = client.offboard_user("alice", "bob", dry_run=True)
+                    assert result["dry_run"] is True
+                    mock_move.assert_not_called()
+
+
+def test_client_offboard_user_not_found():
+    """offboard_user with nonexistent user should return error."""
+    client = ArcGISClient()
+    with patch.object(client, "get_user_details", return_value={"error": "User not found"}):
+        result = client.offboard_user("ghost", "bob")
+        assert "error" in result

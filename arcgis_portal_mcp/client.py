@@ -2363,6 +2363,399 @@ class ArcGISClient:
             return []
         return result.get("users", [])
 
+    def list_user_groups(self, username: str) -> list[dict[str, Any]]:
+        """Get all groups a user belongs to.
+
+        Args:
+            username: The username to look up.
+
+        Returns:
+            List of group dicts (id, title, owner, membershipType).
+        """
+        result = self._sharing_request(
+            f"/community/users/{username}/groups",
+            params={"num": 100},
+        )
+        if not result or "error" in result:
+            return []
+        return result.get("groups", [])
+
+    def update_user(
+        self,
+        username: str,
+        disabled: bool | None = None,
+        role_id: str = "",
+    ) -> dict[str, Any]:
+        """Update user properties (disable, change role, etc.).
+
+        Uses POST /community/users/{username}/update.
+
+        Args:
+            username: The user to update.
+            disabled: Set True to disable, False to enable. None = no change.
+            role_id: New role ID. Empty = no change.
+
+        Returns:
+            Dict with update result.
+        """
+        data: dict[str, Any] = {}
+        if disabled is not None:
+            data["userLicense"] = "viewer" if disabled else "editor"  # placeholder
+            data["status"] = "disabled" if disabled else "active"
+        if role_id:
+            data["roleId"] = role_id
+
+        if not data:
+            return {"error": "No update parameters provided"}
+
+        result = self._sharing_request(
+            f"/community/users/{username}/update",
+            params=data,
+            method="POST",
+        )
+        if not result:
+            return {"error": f"Failed to update user {username}"}
+        if "error" in result:
+            return result
+        return {"success": True, "username": username, "updated_fields": list(data.keys())}
+
+    # ----- v1.12.0: Bulk Reassign Ownership -----
+
+    def bulk_reassign_ownership(
+        self,
+        source_owner: str,
+        target_owner: str,
+        item_types: str = "",
+        folder: str = "",
+        dry_run: bool = True,
+    ) -> dict[str, Any]:
+        """Find and transfer ALL items owned by source_owner to target_owner.
+
+        Filters by item type and/or folder when specified.
+
+        Args:
+            source_owner: Current owner whose items to transfer.
+            target_owner: New owner to receive the items.
+            item_types: Comma-separated types to filter (empty = all).
+            folder: Folder name to filter (empty = all folders + root).
+            dry_run: If True, only preview what would be transferred.
+
+        Returns:
+            Dict with items found, transfer results, and summary.
+        """
+        types_list = [t.strip() for t in item_types.split(",") if t.strip()] if item_types else []
+
+        # Search for all items owned by source_owner
+        all_items: list[dict[str, Any]] = []
+        if types_list:
+            per_type = max(200 // len(types_list), 20)
+            for t in types_list:
+                results = self.search_items(
+                    query="*", item_type=t,
+                    owner=source_owner, max_items=per_type,
+                )
+                all_items.extend(results)
+        else:
+            all_items = self.search_items(
+                query="*", owner=source_owner, max_items=500,
+            )
+
+        # Filter by folder if specified
+        if folder:
+            # Fetch items with folder info (need get_item_details for each)
+            folder_items = []
+            for item in all_items:
+                details = self.get_item_details(item.get("id", ""))
+                if details and details.get("folder", {}).get("title", "") == folder:
+                    folder_items.append(item)
+            all_items = folder_items
+
+        item_ids = [i["id"] for i in all_items if i.get("id")]
+
+        if not item_ids:
+            return {
+                "dry_run": dry_run,
+                "source_owner": source_owner,
+                "target_owner": target_owner,
+                "items_found": 0,
+                "items": [],
+                "message": f"No items found for user '{source_owner}'"
+                + (f" in folder '{folder}'" if folder else "")
+                + (f" of types {item_types}" if item_types else ""),
+            }
+
+        if dry_run:
+            return {
+                "dry_run": True,
+                "source_owner": source_owner,
+                "target_owner": target_owner,
+                "items_found": len(item_ids),
+                "items": [
+                    {"id": i["id"], "title": i.get("title", ""), "type": i.get("type", "")}
+                    for i in all_items
+                ],
+                "message": f"Would transfer {len(item_ids)} items. Set dry_run=false to execute.",
+            }
+
+        # Execute transfer
+        transfer_result = self.move_items(
+            item_ids=item_ids,
+            target_owner=target_owner,
+            source_owner=source_owner,
+        )
+        return {
+            "dry_run": False,
+            "source_owner": source_owner,
+            "target_owner": target_owner,
+            "transfer_result": transfer_result,
+        }
+
+    # ----- v1.12.0: Portal Inventory -----
+
+    def portal_inventory(
+        self,
+        owner: str = "",
+        include_storage: bool = True,
+        include_owners: bool = True,
+        include_age_distribution: bool = True,
+    ) -> dict[str, Any]:
+        """Generate a structured inventory of portal content.
+
+        Provides counts by type, by owner, by access level, and
+        optional age distribution and storage breakdown.
+
+        Args:
+            owner: Filter by owner (empty = all content).
+            include_storage: Include storage breakdown (default True).
+            include_owners: Include per-owner counts (default True).
+            include_age_distribution: Include age buckets (default True).
+
+        Returns:
+            Dict with inventory summary, type/owner/access breakdowns.
+        """
+        from datetime import datetime, timezone
+
+        # On AGOL, q=* returns 0 items. Use orgid: filter instead.
+        effective_query = "*"
+        if not owner and self.portal_url and "arcgis.com" in self.portal_url:
+            portal_info = self.get_portal_info()
+            if portal_info and "id" in portal_info:
+                effective_query = f'orgid:"{portal_info["id"]}"'
+
+        all_items = self.search_items(
+            query=effective_query, owner=owner or None, max_items=1000,
+        )
+
+        if not all_items:
+            return {
+                "summary": {"total_items": 0, "total_storage_mb": 0.0},
+                "by_type": {},
+                "by_owner": {},
+                "by_access": {},
+            }
+
+        by_type: dict[str, int] = {}
+        by_owner: dict[str, int] = {}
+        by_access: dict[str, int] = {}
+        age_buckets = {
+            "< 30 days": 0,
+            "30-90 days": 0,
+            "90-180 days": 0,
+            "180-365 days": 0,
+            "> 1 year": 0,
+        }
+        total_storage = 0
+        now = datetime.now(timezone.utc)
+
+        for item in all_items:
+            # Type counts
+            t = item.get("type", "Unknown")
+            by_type[t] = by_type.get(t, 0) + 1
+
+            # Owner counts
+            if include_owners:
+                o = item.get("owner", "Unknown")
+                by_owner[o] = by_owner.get(o, 0) + 1
+
+            # Access level counts
+            # Access isn't in search results; default to "unknown"
+            # We'll use the item detail if needed, but for performance
+            # skip per-item detail calls here.
+            a = "unknown"
+            by_access[a] = by_access.get(a, 0) + 1
+
+            # Storage
+            if include_storage:
+                total_storage += item.get("size", 0)
+
+            # Age distribution
+            if include_age_distribution:
+                modified_str = item.get("modified", "")
+                if modified_str:
+                    try:
+                        mod_dt = datetime.strptime(
+                            modified_str, "%Y-%m-%d %H:%M"
+                        ).replace(tzinfo=timezone.utc)
+                        days_old = (now - mod_dt).days
+                        if days_old < 30:
+                            age_buckets["< 30 days"] += 1
+                        elif days_old < 90:
+                            age_buckets["30-90 days"] += 1
+                        elif days_old < 180:
+                            age_buckets["90-180 days"] += 1
+                        elif days_old < 365:
+                            age_buckets["180-365 days"] += 1
+                        else:
+                            age_buckets["> 1 year"] += 1
+                    except (ValueError, TypeError):
+                        pass
+
+        # Sort by_type and by_owner descending
+        by_type_sorted = dict(sorted(by_type.items(), key=lambda x: x[1], reverse=True))
+        by_owner_sorted = dict(sorted(by_owner.items(), key=lambda x: x[1], reverse=True))
+
+        result: dict[str, Any] = {
+            "summary": {
+                "total_items": len(all_items),
+                "total_storage_mb": round(total_storage / (1024 * 1024), 2) if include_storage else None,
+                "owner_filter": owner or "(all)",
+                "scan_limit": 1000,
+                "truncated": len(all_items) >= 1000,
+            },
+            "by_type": by_type_sorted,
+            "by_access": by_access,
+        }
+        if include_owners:
+            result["by_owner"] = by_owner_sorted
+        if include_age_distribution:
+            result["age_distribution"] = age_buckets
+        return result
+
+    # ----- v1.12.0: Offboard User -----
+
+    def offboard_user(
+        self,
+        username: str,
+        target_owner: str,
+        disable_account: bool = True,
+        remove_from_groups: bool = True,
+        dry_run: bool = True,
+    ) -> dict[str, Any]:
+        """Complete user offboarding workflow.
+
+        Chains: list user's items -> transfer to target_owner ->
+        remove from all groups -> optionally disable account.
+
+        Args:
+            username: The user to offboard.
+            target_owner: Who receives the user's content.
+            disable_account: Disable the user account after transfer (default True).
+            remove_from_groups: Remove user from all groups (default True).
+            dry_run: Preview only, no changes made (default True).
+
+        Returns:
+            Dict with step-by-step results and summary.
+        """
+        steps: list[dict[str, Any]] = []
+        user_details = self.get_user_details(username)
+        if "error" in user_details:
+            return {
+                "error": f"Could not look up user '{username}': {user_details.get('error', 'unknown')}",
+            }
+
+        # Step 1: Discover user's items
+        items = self.search_items(query="*", owner=username, max_items=500)
+        steps.append({
+            "step": 1,
+            "action": "discover_items",
+            "items_found": len(items),
+            "items": [
+                {"id": i["id"], "title": i.get("title", ""), "type": i.get("type", "")}
+                for i in items
+            ],
+        })
+
+        # Step 2: Discover user's groups
+        groups = []
+        if remove_from_groups:
+            groups = self.list_user_groups(username)
+            # Filter out groups the user owns (cannot remove owner)
+            non_owned = [g for g in groups if g.get("owner", "") != username]
+            steps.append({
+                "step": 2,
+                "action": "discover_groups",
+                "groups_found": len(groups),
+                "groups_removable": len(non_owned),
+                "groups_owned_skipped": len(groups) - len(non_owned),
+                "groups": [
+                    {"id": g["id"], "title": g.get("title", ""), "owner": g.get("owner", "")}
+                    for g in groups
+                ],
+            })
+
+        if dry_run:
+            return {
+                "dry_run": True,
+                "username": username,
+                "target_owner": target_owner,
+                "disable_account": disable_account,
+                "steps": steps,
+                "message": "Preview only. Set dry_run=false to execute the offboarding.",
+            }
+
+        # Step 3: Transfer items
+        if items:
+            item_ids = [i["id"] for i in items if i.get("id")]
+            transfer = self.move_items(
+                item_ids=item_ids,
+                target_owner=target_owner,
+                source_owner=username,
+            )
+            steps.append({
+                "step": 3,
+                "action": "transfer_items",
+                "result": transfer,
+            })
+
+        # Step 4: Remove from groups
+        if remove_from_groups and groups:
+            non_owned = [g for g in groups if g.get("owner", "") != username]
+            removal_results = []
+            for g in non_owned:
+                gid = g.get("id", "")
+                result = self._sharing_request(
+                    f"/community/groups/{gid}/removeUser",
+                    params={"users": username},
+                    method="POST",
+                )
+                removal_results.append({
+                    "group_id": gid,
+                    "group_title": g.get("title", ""),
+                    "success": bool(result and not result.get("error")),
+                })
+            steps.append({
+                "step": 4,
+                "action": "remove_from_groups",
+                "results": removal_results,
+            })
+
+        # Step 5: Disable account
+        if disable_account:
+            update_result = self.update_user(username, disabled=True)
+            steps.append({
+                "step": 5,
+                "action": "disable_account",
+                "result": update_result,
+            })
+
+        return {
+            "dry_run": False,
+            "username": username,
+            "target_owner": target_owner,
+            "steps": steps,
+            "message": f"Offboarding complete for '{username}'.",
+        }
+
     # ----- Folder Lifecycle (v1.10.0) -----
 
     def delete_folder(self, folder_id: str, owner: str | None = None) -> dict[str, Any]:
