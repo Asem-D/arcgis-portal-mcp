@@ -19,7 +19,7 @@ from arcgis_portal_mcp.server import _validate_where_clause, mcp
 
 def test_version():
     """Version should match pyproject.toml."""
-    assert __version__ == "1.12.0"
+    assert __version__ == "1.13.0"
 
 
 def test_client_init():
@@ -2325,6 +2325,69 @@ def test_client_portal_inventory_type_counts():
         result = client.portal_inventory()
         assert result["by_type"]["Feature Service"] == 1
         assert result["by_type"]["Web Map"] == 1
+
+
+def test_client_portal_inventory_excludes_system_content():
+    """portal_inventory should filter out esri_* and portaladmin by default."""
+    client = ArcGISClient()
+    items = [
+        {"id": "1", "title": "A", "type": "Feature Service", "owner": "alice", "size": 100, "modified": "2026-09-01 10:00"},
+        {"id": "2", "title": "B", "type": "Basemap", "owner": "esri_ca", "size": 500, "modified": "2026-09-01 10:00"},
+        {"id": "3", "title": "C", "type": "Basemap", "owner": "esri_livingatlas", "size": 600, "modified": "2026-09-01 10:00"},
+        {"id": "4", "title": "D", "type": "System", "owner": "portaladmin", "size": 100, "modified": "2026-09-01 10:00"},
+        {"id": "5", "title": "E", "type": "Web Map", "owner": "bob", "size": 200, "modified": "2026-09-01 10:00"},
+    ]
+    with patch.object(client, "search_items", return_value=items):
+        result = client.portal_inventory()
+        assert result["summary"]["total_items"] == 2  # alice + bob
+        assert result["summary"]["system_items_filtered"] == 3  # esri_ca, esri_livingatlas, portaladmin
+
+
+def test_client_portal_inventory_include_system_content():
+    """portal_inventory with exclude_system_content=False should keep system accounts."""
+    client = ArcGISClient()
+    items = [
+        {"id": "1", "title": "A", "type": "Feature Service", "owner": "alice", "size": 100, "modified": "2026-09-01 10:00"},
+        {"id": "2", "title": "B", "type": "Basemap", "owner": "esri_ca", "size": 500, "modified": "2026-09-01 10:00"},
+    ]
+    with patch.object(client, "search_items", return_value=items):
+        result = client.portal_inventory(exclude_system_content=False)
+        assert result["summary"]["total_items"] == 2
+        assert result["summary"]["system_items_filtered"] == 0
+
+
+def test_search_items_enterprise_fallback():
+    """search_items should use access-based query on Enterprise when query is *."""
+    client = ArcGISClient()
+    client.portal_url = "https://gis.dar.com"
+    client.sharing_url = "https://gis.dar.com/sharing/rest"
+    client._token = "test"
+
+    with patch.object(client, "_sharing_request") as mock_req:
+        mock_req.return_value = {"total": 0, "results": []}
+        client.search_items(query="*")
+
+        # Verify the query is NOT the literal "*" but the access-based fallback
+        call_args = mock_req.call_args
+        q_value = call_args[1]["params"]["q"] if "params" in call_args[1] else call_args[0][1]["q"]
+        assert q_value != "*", f"Should not use q=* on Enterprise, got: {q_value}"
+        assert "access:" in q_value
+
+
+def test_search_items_agol_keeps_star():
+    """search_items should keep q=* on AGOL (AGOL workaround is in portal_inventory)."""
+    client = ArcGISClient()
+    client.portal_url = "https://org.maps.arcgis.com"
+    client.sharing_url = "https://org.maps.arcgis.com/sharing/rest"
+    client._token = "test"
+
+    with patch.object(client, "_sharing_request") as mock_req:
+        mock_req.return_value = {"total": 0, "results": []}
+        client.search_items(query="*")
+
+        call_args = mock_req.call_args
+        q_value = call_args[1]["params"]["q"] if "params" in call_args[1] else call_args[0][1]["q"]
+        assert q_value == "*", f"AGOL should keep q=* (handled elsewhere), got: {q_value}"
 
 
 def test_client_offboard_user_dry_run():

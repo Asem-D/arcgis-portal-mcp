@@ -3265,6 +3265,7 @@ def portal_inventory(
     include_storage: bool = True,
     include_owners: bool = True,
     include_age_distribution: bool = True,
+    exclude_system_content: bool = True,
 ) -> dict[str, Any]:
     """Generate a structured inventory of portal content.
 
@@ -3277,6 +3278,9 @@ def portal_inventory(
         include_storage: Include total storage in MB (default true).
         include_owners: Include per-owner item counts (default true).
         include_age_distribution: Include age buckets (default true).
+        exclude_system_content: Filter out Esri system accounts
+            (esri_*, portaladmin) that inflate counts on Enterprise
+            deployments (default true).
     """
     client = _require_connected()
     if not client:
@@ -3288,6 +3292,7 @@ def portal_inventory(
             include_storage=include_storage,
             include_owners=include_owners,
             include_age_distribution=include_age_distribution,
+            exclude_system_content=exclude_system_content,
         )
         return {"status": "ok", **result}
     except Exception as e:

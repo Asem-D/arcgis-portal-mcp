@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.13.0 (2026-09-22)
+
+### Bug Fixes
+- **Enterprise search fix**: `search_items("*")` now works on Enterprise portals. When `q=*` is used on a non-arcgis.com portal, it automatically falls back to `access:"private" OR access:"shared" OR access:"org" OR access:"public"` which matches all content (fixes 0-item results on Enterprise).
+
+### Improvements
+- **`portal_inventory` system content filtering**: new `exclude_system_content` parameter (default `true`) filters out Esri system accounts (`esri_*`, `portaladmin`) that inflate inventory counts on Enterprise deployments. Set to `false` to include system content.
+- `portal_inventory` summary now includes `system_items_filtered` count when filtering is active.
+
+### Tests
+- 4 new tests (165 total): Enterprise fallback query, AGOL star preservation, system content exclusion, system content opt-in
+
 ## v1.12.0 (2026-09-20)
 
 ### New Tools (3)

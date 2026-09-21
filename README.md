@@ -1,6 +1,6 @@
 # arcgis-portal-mcp
 
-**v1.12.0.** 73 tools for ArcGIS Enterprise Portal and ArcGIS Online.
+**v1.13.0.** 73 tools for ArcGIS Enterprise Portal and ArcGIS Online.
 
 A Model Context Protocol (MCP) server that gives AI assistants direct access to your ArcGIS content. Search, inspect, edit, publish, and admin through natural language.
 
@@ -8,7 +8,12 @@ Works with Claude Desktop, Cursor, VS Code Copilot, and any MCP-compatible clien
 
 > **Disclaimer:** This is an independent open-source project. Not affiliated with, endorsed by, or sponsored by Esri. "ArcGIS" is a registered trademark of Esri.
 
-## What's new in v1.12.0
+## What's new in v1.13.0
+
+- **Enterprise search fix**: `search_items("*")` now works on Enterprise portals. Automatically falls back to an access-based query when the literal `*` returns 0 items.
+- **System content filtering**: `portal_inventory` now excludes Esri system accounts (`esri_*`, `portaladmin`) by default, giving you accurate counts of your organization's actual content. Pass `exclude_system_content=false` to include system content.
+
+### What's new in v1.12.0
 
 - **`portal_inventory`**: scan portal content with item counts by type, owner, age, and storage. Get a bird's-eye view of your organization's content.
 - **`bulk_reassign_ownership`**: transfer content ownership between users in bulk. Essential for offboarding and team changes.

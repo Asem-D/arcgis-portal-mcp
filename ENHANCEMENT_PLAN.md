@@ -1,7 +1,7 @@
 # arcgis-portal-mcp Enhancement Plan
 
 **Date**: August 2026
-**Current version**: v1.12.0 (73 tools)
+**Current version**: v1.13.0 (73 tools)
 **Last updated**: 2026-10-01
 
 ---

@@ -474,6 +474,19 @@ class ArcGISClient:
 
         full_query = " AND ".join(q_parts) if q_parts else "*"
 
+        # On Enterprise portals, q=* returns 0 items (* is treated as a
+        # literal character, not a wildcard). Replace with an access-based
+        # query that matches all content.
+        if (
+            full_query == "*"
+            and self.portal_url
+            and "arcgis.com" not in self.portal_url
+        ):
+            full_query = (
+                'access:"private" OR access:"shared" '
+                'OR access:"org" OR access:"public"'
+            )
+
         items = []
         start = 1
         page_size = min(max_items, 100)
@@ -2518,6 +2531,7 @@ class ArcGISClient:
         include_storage: bool = True,
         include_owners: bool = True,
         include_age_distribution: bool = True,
+        exclude_system_content: bool = True,
     ) -> dict[str, Any]:
         """Generate a structured inventory of portal content.
 
@@ -2529,6 +2543,9 @@ class ArcGISClient:
             include_storage: Include storage breakdown (default True).
             include_owners: Include per-owner counts (default True).
             include_age_distribution: Include age buckets (default True).
+            exclude_system_content: Filter out Esri system accounts
+                (esri_*, portaladmin) that come pre-installed with every
+                Enterprise deployment (default True).
 
         Returns:
             Dict with inventory summary, type/owner/access breakdowns.
@@ -2548,11 +2565,30 @@ class ArcGISClient:
 
         if not all_items:
             return {
-                "summary": {"total_items": 0, "total_storage_mb": 0.0},
+                "summary": {
+                    "total_items": 0,
+                    "total_storage_mb": 0.0,
+                    "system_items_filtered": 0,
+                },
                 "by_type": {},
                 "by_owner": {},
                 "by_access": {},
             }
+
+        # Filter out Esri system accounts (esri_*, portaladmin) that
+        # inflate inventory counts on Enterprise deployments.
+        _SYSTEM_OWNER_PREFIXES = ("esri_",)
+        _SYSTEM_OWNER_NAMES = ("portaladmin",)
+        system_items_filtered = 0
+        if exclude_system_content:
+            filtered = []
+            for item in all_items:
+                o = item.get("owner", "")
+                if o.startswith(_SYSTEM_OWNER_PREFIXES) or o in _SYSTEM_OWNER_NAMES:
+                    system_items_filtered += 1
+                else:
+                    filtered.append(item)
+            all_items = filtered
 
         by_type: dict[str, int] = {}
         by_owner: dict[str, int] = {}
@@ -2621,6 +2657,7 @@ class ArcGISClient:
                 "owner_filter": owner or "(all)",
                 "scan_limit": 1000,
                 "truncated": len(all_items) >= 1000,
+                "system_items_filtered": system_items_filtered,
             },
             "by_type": by_type_sorted,
             "by_access": by_access,
