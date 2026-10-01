@@ -19,7 +19,13 @@ from arcgis_portal_mcp.server import _validate_where_clause, mcp
 
 def test_version():
     """Version should match pyproject.toml."""
-    assert __version__ == "1.13.0"
+    import re
+    from pathlib import Path
+
+    pyproject = Path(__file__).parent.parent / "pyproject.toml"
+    m = re.search(r'^version\s*=\s*"([^"]+)"', pyproject.read_text(), re.M)
+    assert m, "version not found in pyproject.toml"
+    assert __version__ == m.group(1)
 
 
 def test_client_init():
@@ -836,6 +842,93 @@ def test_client_clone_item():
         assert "/addItem" in call_args[0][0]
         assert call_args[1]["params"]["title"] == "Original Map (Copy)"
         assert call_args[1]["params"]["type"] == "Web Map"
+
+
+def test_client_upload_file_uses_additem_endpoint():
+    """upload_file should POST to /addItem, not /add."""
+    client = ArcGISClient()
+    client._token = "fake-token"
+    client._username = "testuser"
+
+    import tempfile, os
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False, mode="w") as f:
+        f.write("name,value\nA,1\n")
+        tmp = f.name
+    try:
+        with patch.object(client._session, "post") as mock_post:
+            mock_post.return_value = MagicMock(
+                raise_for_status=MagicMock(),
+                json=lambda: {"success": True, "id": "item123", "item": "item123"},
+            )
+            result = client.upload_file(tmp, "Test CSV", "CSV")
+            assert result.get("success") is True
+            url = mock_post.call_args[0][0]
+            assert url.endswith("/content/users/testuser/addItem"), (
+                f"Expected /addItem endpoint, got: {url}"
+            )
+            assert "/add" in url and not url.endswith("/add"), (
+                "Must not use the /add endpoint"
+            )
+    finally:
+        os.unlink(tmp)
+
+
+def test_client_publish_uses_filetype_and_owner_id():
+    """publish_from_item should send fileType (not serviceType), lowercase
+    itemid, and use the user GUID in the URL path when _user_info has an id.
+    Live wire capture against AGOL confirmed: itemid (lowercase), fileType
+    (capital T), and publishParameters always present with type set."""
+    client = ArcGISClient()
+    client._token = "fake-token"
+    client._username = "assem.daaboul"
+    client._user_info = {"username": "assem.daaboul", "id": "15421be032b74c6ea14f3c54a14c8502"}
+
+    sample_csv = "name,lat,lon,value\nPoint A,33.8886,35.4955,10\nPoint B,33.89,35.5,20\n"
+
+    with patch.object(client, "_sharing_request") as mock_req, \
+         patch.object(client, "_fetch_item_text", return_value=sample_csv):
+        mock_req.return_value = {"success": True, "services": [{"serviceUrl": "https://x/FeatureServer"}]}
+        client.publish_from_item("item123", service_type="csv")
+        endpoint = mock_req.call_args[0][0]
+        params = mock_req.call_args[1]["params"]
+        # Must use the user GUID, not the username
+        assert endpoint == "/content/users/15421be032b74c6ea14f3c54a14c8502/publish", (
+            f"Expected GUID in publish URL, got: {endpoint}"
+        )
+        assert "fileType" in params
+        assert params["fileType"] == "csv"
+        assert "serviceType" not in params
+        # itemid must be lowercase (live-verified AGOL wire format)
+        assert params["itemid"] == "item123"
+        # publishParameters must always be present with type set
+        import json as _json
+        pp = _json.loads(params["publishParameters"])
+        assert pp["type"] == "csv"
+        # Recommended defaults observed from ArcGIS Python API wire format
+        assert pp["useBulkInserts"] is True
+        # layerInfo auto-generated from CSV headers when not provided
+        assert "layerInfo" in pp
+        field_names = [f["name"] for f in pp["layerInfo"]["fields"]]
+        assert field_names == ["name", "lat", "lon", "value"]
+        # lat/lon fields must be recognized as coordinate fields
+        loc_types = {f["name"]: f["locationType"] for f in pp["layerInfo"]["fields"]}
+        assert loc_types["lat"] == "latitude"
+        assert loc_types["lon"] == "longitude"
+
+
+def test_client_publish_falls_back_to_username_without_id():
+    """publish_from_item should fall back to username when _user_info
+    has no id (e.g. older auth paths)."""
+    client = ArcGISClient()
+    client._token = "fake-token"
+    client._username = "testuser"
+    client._user_info = {"username": "testuser"}
+
+    with patch.object(client, "_sharing_request") as mock_req:
+        mock_req.return_value = {"success": True}
+        client.publish_from_item("item123", service_type="csv")
+        endpoint = mock_req.call_args[0][0]
+        assert endpoint == "/content/users/testuser/publish"
 
 
 def test_client_move_items():

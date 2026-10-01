@@ -1,11 +1,11 @@
 ---
 name: arcgis-portal-mcp
-description: "MCP server for ArcGIS Portal and ArcGIS Online. 70 tools for search, inspect, publish, query, manage, audit, and administer ArcGIS content. Use when: the user wants to work with feature services, web maps, layers, groups, users, webhooks, or portal administration through an AI assistant."
+description: "MCP server for ArcGIS Portal and ArcGIS Online. 73 tools for search, inspect, publish, query, manage, audit, and administer ArcGIS content. Use when: the user wants to work with feature services, web maps, layers, groups, users, webhooks, or portal administration through an AI assistant."
 ---
 
 # arcgis-portal-mcp
 
-MCP server for ArcGIS Enterprise Portal and ArcGIS Online. 70 tools covering the full ArcGIS REST API surface.
+MCP server for ArcGIS Enterprise Portal and ArcGIS Online. 73 tools covering the full ArcGIS REST API surface.
 
 ## When to Use
 
@@ -22,7 +22,7 @@ MCP server for ArcGIS Enterprise Portal and ArcGIS Online. 70 tools covering the
 - `.env` file with portal credentials (or MCP client env vars)
 - The MCP server must be configured in the AI client
 
-## Tool Reference (70 Tools)
+## Tool Reference (73 Tools)
 
 ### Connection and Status
 
@@ -64,7 +64,7 @@ MCP server for ArcGIS Enterprise Portal and ArcGIS Online. 70 tools covering the
 | `clone_item` | Duplicate an item with its data. |
 | `move_items` | Reassign content ownership between users. |
 | `upload_item` | Upload local CSV, Shapefile (zipped), GeoJSON, KML, etc. |
-| `publish_from_item` | Publish an uploaded item as a hosted feature service. |
+| `publish_from_item` | Publish an uploaded item as a hosted feature service. CSV layerInfo auto-generated if omitted. |
 | `create_service` | Create an empty service with a custom schema. |
 | `create_folder` | Organize items into folders. |
 | `list_folders` | See folder structure. |
@@ -156,7 +156,7 @@ Step 1: upload_item
 
 Step 2: publish_from_item
   - item_id: from Step 1 result
-  - service_type: featureService (default)
+  - service_type: source file type — csv (default), shapefile, geojson, etc.
 
 Step 3: search_content (verify)
   - query: the title you gave it

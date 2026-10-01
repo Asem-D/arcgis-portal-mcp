@@ -326,7 +326,14 @@ class ArcGISClient:
         self._token = token
         self._token_expires = expires_at
         self._username = username
-        self._user_info = {"username": username}
+        # Fetch full user object (includes the user GUID "id") from
+        # /community/self. The GUID is required for content operations
+        # like publish on ArcGIS Enterprise 12.x.
+        user_info = self._sharing_request("/community/self", token=token)
+        if user_info and "error" not in user_info:
+            self._user_info = user_info
+        else:
+            self._user_info = {"username": username}
         self._auth_method = "generateToken"
         self._reconnect_params = {
             "portal_url": portal_url,
@@ -1006,7 +1013,7 @@ class ArcGISClient:
             return {"error": f"File not found: {file_path}"
             }
 
-        url = f"{self.sharing_url}/content/users/{owner}/add"
+        url = f"{self.sharing_url}/content/users/{owner}/addItem"
         params: dict[str, Any] = {
             "title": title,
             "type": type_,
@@ -1037,10 +1044,120 @@ class ArcGISClient:
         except json.JSONDecodeError:
             return {"error": "Non-JSON response from upload"}
 
+    def _fetch_item_text(self, item_id: str) -> str:
+        """Fetch raw item data as text (used for CSV field inference)."""
+        url = f"{self.sharing_url}/content/items/{item_id}/data"
+        params: dict[str, Any] = {"f": "json"}
+        if self.token:
+            params["token"] = self.token
+        resp = self._session.get(url, params=params, timeout=30)
+        return resp.text
+
+    @staticmethod
+    def _infer_csv_layer_info(csv_text: str, service_name: str) -> dict[str, Any]:
+        """Build a minimal layerInfo dict from CSV headers and first data row.
+
+        ArcGIS silently fails publish when layerInfo is missing; this builds
+        just enough structure for a point/line/polygon CSV publish.
+        """
+        import csv as _csv
+        import io as _io
+
+        reader = _csv.reader(_io.StringIO(csv_text))
+        rows = list(reader)
+        if not rows:
+            return {"name": service_name, "type": "Table", "fields": []}
+
+        headers = [h.strip() for h in rows[0]]
+        sample = rows[1] if len(rows) > 1 else [""] * len(headers)
+
+        def _infer_type(h: str, v: str) -> tuple[str, str]:
+            """Return (esriFieldType, locationType)."""
+            h_lower = h.lower()
+            # Coordinate fields must be detected by header name first; a
+            # float value like "33.8886" would otherwise short-circuit
+            # value-based inference and mark lat/lon as locationType
+            # "unknown", producing non-spatial tables on publish.
+            if any(t in h_lower for t in ("lat", "y_", "_y")) and not h_lower.endswith("lon"):
+                return "esriFieldTypeDouble", "latitude"
+            if any(t in h_lower for t in ("lon", "long", "x_", "_x")):
+                return "esriFieldTypeDouble", "longitude"
+            v = v.strip()
+            if v:
+                try:
+                    int(v)
+                    return "esriFieldTypeInteger", "unknown"
+                except ValueError:
+                    pass
+                try:
+                    float(v)
+                    return "esriFieldTypeDouble", "unknown"
+                except ValueError:
+                    pass
+            return "esriFieldTypeString", "unknown"
+
+        fields = []
+        for i, h in enumerate(headers):
+            v = sample[i] if i < len(sample) else ""
+            esri_type, loc_type = _infer_type(h, v)
+            field: dict[str, Any] = {
+                "name": h,
+                "type": esri_type,
+                "alias": h,
+                "nullable": True,
+                "editable": True,
+                "domain": None,
+                "defaultValue": None,
+                "locationType": loc_type,
+            }
+            if esri_type == "esriFieldTypeString":
+                field["length"] = 256
+            fields.append(field)
+
+        display = headers[0] if headers else service_name
+        return {
+            "id": 0,
+            "name": service_name,
+            "type": "Table",
+            "displayField": display,
+            "description": "",
+            "copyrightText": "",
+            "defaultVisibility": True,
+            "relationships": [],
+            "isDataVersioned": False,
+            "supportsAppend": True,
+            "supportsCalculate": True,
+            "supportsStatistics": True,
+            "supportsAdvancedQueries": True,
+            "supportsValidateSql": True,
+            "supportsCoordinatesQuantization": True,
+            "hasAttachments": False,
+            "htmlPopupType": "",
+            "hasM": False,
+            "hasZ": False,
+            "globalIdField": "",
+            "typeIdField": "",
+            "fields": fields,
+            "indexes": [],
+            "types": [],
+            "templates": [
+                {
+                    "name": "New Feature",
+                    "description": "",
+                    "drawingTool": "esriFeatureEditToolPoint",
+                    "prototype": {"attributes": {h: None for h in headers}},
+                }
+            ],
+            "supportedQueryFormats": "JSON, geoJSON, PBF",
+            "maxRecordCount": -1,
+            "standardMaxRecordCount": 32000,
+            "capabilities": "Create,Delete,Query,Update,Editing",
+        }
+
     def publish_from_item(
         self,
         item_id: str,
-        service_type: str = "featureService",
+        service_type: str = "csv",
         publish_parameters: dict[str, Any] | None = None,
         owner: str | None = None,
     ) -> dict[str, Any]:
@@ -1048,9 +1165,14 @@ class ArcGISClient:
 
         Args:
             item_id: The ID of the uploaded item to publish.
-            service_type: 'featureService' or 'mapService'.
+            service_type: The source file type for the publish endpoint.
+                Valid values: 'csv', 'shapefile', 'geojson', 'fileGeodatabase',
+                'serviceDefinition', 'excel', 'sqliteGeodatabase',
+                'featureCollection', 'featureService', 'mapService'.
             publish_parameters: Optional dict for CSV/Shapefile publish config
-                (e.g., layer configuration, output name).
+                (e.g., layer configuration, output name). If 'layerInfo' is
+                omitted for a CSV publish, it is auto-generated from the
+                CSV headers and first data row.
             owner: Owner username.
 
         Returns:
@@ -1061,15 +1183,55 @@ class ArcGISClient:
         if not owner:
             return {"error": "No owner specified."}
 
+        # Resolve owner ID from user_info. ArcGIS Enterprise 12.x requires
+        # the user GUID in the URL path, not the username (username returns
+        # success but the hosted service is never created on ArcGIS Server).
+        owner_id = owner
+        if self._user_info and self._user_info.get("id"):
+            owner_id = self._user_info["id"]
+
         data: dict[str, Any] = {
-            "itemId": item_id,
-            "serviceType": service_type,
+            "itemid": item_id,
+            "fileType": service_type,
         }
-        if publish_parameters:
-            data["publishParameters"] = json.dumps(publish_parameters)
+        params_copy = dict(publish_parameters) if publish_parameters else {}
+        # ArcGIS requires publishParameters.type to match the source file
+        # type; without it the publish endpoint silently fails with
+        # {"services":[{"success":false}]} and no error message.
+        params_copy.setdefault("type", service_type)
+
+        # AGOL silently fails CSV publish without a layerInfo that defines
+        # fields. Auto-generate one from the CSV content if not provided.
+        if service_type == "csv" and "layerInfo" not in params_copy:
+            try:
+                csv_text = self._fetch_item_text(item_id)
+                if csv_text and not csv_text.lstrip().startswith("{"):
+                    svc_name = params_copy.get("name", "Service")
+                    params_copy["layerInfo"] = self._infer_csv_layer_info(csv_text, svc_name)
+            except Exception:
+                logger.debug("Could not auto-generate layerInfo for CSV publish", exc_info=True)
+
+        # Recommended defaults observed from the ArcGIS Python API wire format.
+        params_copy.setdefault("useBulkInserts", True)
+        params_copy.setdefault("sourceUrl", "")
+        params_copy.setdefault("maxRecordCount", 1000)
+        params_copy.setdefault("columnDelimiter", ",")
+        params_copy.setdefault("sourceSR", {"wkid": 4326, "latestWkid": 4326})
+        params_copy.setdefault("targetSR", {"wkid": 102100, "latestWkid": 3857})
+        params_copy.setdefault("editorTrackingInfo", {
+            "enableEditorTracking": False,
+            "enableOwnershipAccessControl": False,
+            "allowOthersToQuery": True,
+            "allowOthersToUpdate": True,
+            "allowOthersToDelete": False,
+            "allowAnonymousToQuery": True,
+            "allowAnonymousToUpdate": True,
+            "allowAnonymousToDelete": True,
+        })
+        data["publishParameters"] = json.dumps(params_copy)
 
         result = self._sharing_request(
-            f"/content/users/{owner}/publish",
+            f"/content/users/{owner_id}/publish",
             params=data,
             method="POST",
         )

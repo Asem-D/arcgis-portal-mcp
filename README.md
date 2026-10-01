@@ -1,6 +1,6 @@
 # arcgis-portal-mcp
 
-**v1.13.0.** 73 tools for ArcGIS Enterprise Portal and ArcGIS Online.
+**v1.14.0.** 73 tools for ArcGIS Enterprise Portal and ArcGIS Online.
 
 A Model Context Protocol (MCP) server that gives AI assistants direct access to your ArcGIS content. Search, inspect, edit, publish, and admin through natural language.
 
@@ -8,7 +8,12 @@ Works with Claude Desktop, Cursor, VS Code Copilot, and any MCP-compatible clien
 
 > **Disclaimer:** This is an independent open-source project. Not affiliated with, endorsed by, or sponsored by Esri. "ArcGIS" is a registered trademark of Esri.
 
-## What's new in v1.13.0
+## What's new in v1.14.0
+
+- **Publishing fixed for ArcGIS Enterprise 12.x**: `upload_item` now uses the correct `/addItem` endpoint, and `publish_from_item` sends the exact wire format ArcGIS expects (`fileType`, lowercase `itemid`, user GUID in the publish URL). On Enterprise 12.x the old code returned "success" but the hosted service was never created on ArcGIS Server.
+- **CSV publish just works**: publish a CSV without a `layerInfo` and the field schema is auto-generated from your headers and first data row, including lat/lon coordinate detection. ArcGIS silently fails CSV publish without it.
+
+### What's new in v1.13.0
 
 - **Enterprise search fix**: `search_items("*")` now works on Enterprise portals. Automatically falls back to an access-based query when the literal `*` returns 0 items.
 - **System content filtering**: `portal_inventory` now excludes Esri system accounts (`esri_*`, `portaladmin`) by default, giving you accurate counts of your organization's actual content. Pass `exclude_system_content=false` to include system content.
@@ -434,7 +439,7 @@ Agent: [calls find_stale_items with days_threshold=365]
 | Tool | Description |
 |------|-------------|
 | `upload_item` | Upload a local file (CSV, Shapefile, etc.) to portal content |
-| `publish_from_item` | Publish an uploaded item as a hosted feature service |
+| `publish_from_item` | Publish an uploaded item as a hosted feature service (CSV layerInfo auto-generated when omitted) |
 | `create_service` | Create an empty hosted feature service with schema |
 | `get_gp_task_info` | Inspect GP tool schemas: list tasks or view parameter definitions before execution |
 | `execute_gp_task` | Run a synchronous geoprocessing task |

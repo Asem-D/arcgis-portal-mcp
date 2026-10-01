@@ -38,6 +38,8 @@ _test_admin_token.py
 
 # Working files
 ESRI_MCP_COMPARISON.md
+RESEARCH_VALUE_ANALYSIS.md
+.nanobot/
 screenshot_webmap.py
 webmap_screenshot.png
 *.png

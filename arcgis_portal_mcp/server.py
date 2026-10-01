@@ -1542,7 +1542,7 @@ def upload_item(
 @mcp.tool()
 def publish_from_item(
     item_id: str,
-    service_type: str = "featureService",
+    service_type: str = "csv",
     publish_parameters: str = "",
     owner: str = "",
 ) -> dict[str, Any]:
@@ -1553,9 +1553,15 @@ def publish_from_item(
 
     Args:
         item_id: The ID of the uploaded item (from upload_item result).
-        service_type: 'featureService' (default) or 'mapService'.
+        service_type: Source file type for the publish endpoint.
+            Valid values: 'csv' (default), 'shapefile', 'geojson',
+            'fileGeodatabase', 'serviceDefinition', 'excel',
+            'sqliteGeodatabase', 'featureCollection'.
         publish_parameters: Optional JSON string for advanced config.
-            Example for CSV: '{"layerInfo": {"name": "Parcels", "fields": [...]}}'.
+            Example for CSV: '{"name": "Parcels", "locationType": "coordinates",
+            "latitudeFieldName": "lat", "longitudeFieldName": "lon"}'.
+            For CSVs with x,y fields, include locationType, latitudeFieldName,
+            and longitudeFieldName. The portal may auto-detect fields if omitted.
         owner: Owner username. Defaults to connected user.
 
     Returns:

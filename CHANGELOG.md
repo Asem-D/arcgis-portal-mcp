@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.14.0 (2026-10-01)
+
+### Bug Fixes
+- **Upload endpoint fix**: `upload_item` now POSTs to `/content/users/{owner}/addItem` (was using the invalid `/add` endpoint).
+- **Publish wire format fix**: `publish_from_item` now sends the parameters ArcGIS actually expects: `fileType` (was `serviceType`), lowercase `itemid`, and `publishParameters` always present with `type` set to the source file type. Without these, publish silently failed with `{"services":[{"success":false}]}` and no error message.
+- **ArcGIS Enterprise 12.x publish fix**: the publish URL now uses the user's GUID (fetched from `/community/self` at connect time) instead of the username. Enterprise 12.x requires the GUID; the username path returned success but the hosted service was never created on ArcGIS Server.
+
+### Improvements
+- **CSV publish auto layerInfo**: when `publish_parameters` omits `layerInfo` for a CSV publish, it is auto-generated from the CSV headers and first data row, including lat/lon field detection by header name (value-based inference alone misclassified coordinate fields as plain doubles). ArcGIS silently fails CSV publish without a layerInfo that defines fields.
+- Recommended publish defaults from the ArcGIS Python API wire format (`useBulkInserts`, source/target SR, editor tracking, `maxRecordCount`).
+
+### Tests
+- 3 new tests (196 total): addItem endpoint, publish fileType/GUID/layerInfo wire format, username fallback when no GUID available.
+- Live end-to-end test against AGOL (`dargis.maps.arcgis.com`): upload CSV, publish, query FeatureServer (3 features verified), cleanup. Script at `scripts/live_test_upload_publish.py`.
+
 ## v1.13.0 (2026-09-22)
 
 ### Bug Fixes
