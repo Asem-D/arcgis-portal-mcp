@@ -2924,7 +2924,7 @@ def arcgis_rest_guide() -> str:
 - Admin API: https://{hostname}/{webadaptor}/portaladmin/
 
 ## Service Publishing
-- `/content/users/{owner}/add`, Upload a file (POST, multipart)
+- `/content/users/{owner}/addItem`, Upload a file (POST, multipart)
 - `/content/users/{owner}/publish`, Publish item as feature service (POST)
 - `/content/users/{owner}/createService`, Create hosted feature service (POST)
 
