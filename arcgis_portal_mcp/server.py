@@ -226,6 +226,8 @@ _WRITE_TOOLS: set[str] = {
     "import_group_content",
     # v1.12.0: User lifecycle & bulk operations
     "bulk_reassign_ownership", "offboard_user",
+    # v1.15.0: Server admin & batch edits
+    "start_service", "stop_service", "apply_edits_batch",
 }
 
 
@@ -817,6 +819,7 @@ def query_features(
     limit: int = 20,
     offset: int = 0,
     order_by: str | None = None,
+    return_distinct_values: bool = False,
 ) -> dict[str, Any]:
     """Query features from a hosted feature layer.
 
@@ -834,6 +837,8 @@ def query_features(
         limit: Maximum features to return (default 20, max 2000)
         offset: Offset for pagination (default 0)
         order_by: Field name to sort by (optional)
+        return_distinct_values: Return only distinct values of out_fields
+                                (like SQL DISTINCT). Geometry is not returned.
     """
     client = _require_connected()
     if not client:
@@ -880,6 +885,12 @@ def query_features(
         if order_by:
             params["orderByFields"] = order_by
 
+        if return_distinct_values:
+            params["returnDistinctValues"] = "true"
+            params["returnGeometry"] = "false"
+            params.pop("resultOffset", None)
+            params.pop("resultRecordCount", None)
+
         # Execute query
         resp = client._session.get(query_url, params=params, timeout=60)
         result = resp.json()
@@ -889,6 +900,16 @@ def query_features(
 
         features = result.get("features", [])
         exceeded = result.get("exceededTransferLimit", False)
+
+        if return_distinct_values:
+            values = [f.get("attributes", {}) for f in features]
+            return {
+                "status": "ok",
+                "item_id": item_id,
+                "layer_id": layer_id,
+                "count": len(values),
+                "distinct_values": values,
+            }
 
         # Simplify output for LLM consumption
         simplified = []
@@ -1148,6 +1169,153 @@ def check_service_health(
 
 
 # =========================================================================
+# Server Administration (v1.15.0)
+# =========================================================================
+
+
+@mcp.tool()
+def list_server_services(folder: str = "") -> dict[str, Any]:
+    """List services on the hosting server (requires admin privileges).
+
+    Args:
+        folder: Folder name to list (empty = root folder). Use "*" for all folders.
+
+    Returns:
+        Services array with names, types, and statuses per folder.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    result = client.list_server_services(folder=folder)
+    if result and "error" in result:
+        return {"status": "error", "error": result["error"]}
+    return {"status": "ok", "result": result}
+
+
+@mcp.tool()
+def get_service_details(service_url: str) -> dict[str, Any]:
+    """Get full admin configuration of a service (requires admin privileges).
+
+    Returns status, instance count, capabilities, and other configuration
+    not visible through the public REST endpoint.
+
+    Args:
+        service_url: Full service URL (e.g. .../FeatureServer or .../MapServer)
+
+    Returns:
+        Service configuration JSON. Stopped services return status "error"
+        from the server (expected ArcGIS Server behavior).
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    svc_err = _check_service_url(service_url)
+    if svc_err:
+        return {"status": "error", "error": svc_err}
+
+    result = client.get_service_details(service_url)
+    if result and "error" in result:
+        return {"status": "error", "error": result["error"]}
+    return {"status": "ok", "result": result}
+
+
+@mcp.tool()
+def start_service(service_url: str) -> dict[str, Any]:
+    """Start a stopped service on the hosting server (requires admin privileges).
+
+    Args:
+        service_url: Full service URL (e.g. .../FeatureServer or .../MapServer)
+
+    Returns:
+        Start status from the server.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    svc_err = _check_service_url(service_url)
+    if svc_err:
+        return {"status": "error", "error": svc_err}
+
+    result = client.start_service(service_url)
+    if result and "error" in result:
+        return {"status": "error", "error": result["error"]}
+    return {"status": "ok", "result": result}
+
+
+@mcp.tool()
+def stop_service(service_url: str, confirm: bool = False) -> dict[str, Any]:
+    """Stop a service on the hosting server (requires admin privileges).
+
+    DESTRUCTIVE: interrupts all connected users. Requires confirm=true.
+
+    Args:
+        service_url: Full service URL (e.g. .../FeatureServer or .../MapServer)
+        confirm: Must be true to actually stop the service.
+
+    Returns:
+        Stop status from the server.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    svc_err = _check_service_url(service_url)
+    if svc_err:
+        return {"status": "error", "error": svc_err}
+
+    if not confirm:
+        return {
+            "status": "error",
+            "error": "Stopping a service interrupts all connected users. "
+                     "Re-call with confirm=true to proceed.",
+        }
+
+    result = client.stop_service(service_url)
+    if result and "error" in result:
+        return {"status": "error", "error": result["error"]}
+    return {"status": "ok", "result": result}
+
+
+@mcp.tool()
+def list_server_machines() -> dict[str, Any]:
+    """List machines in the hosting server site (requires admin privileges).
+
+    Returns:
+        Machine list with names, roles, and statuses.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    result = client.list_server_machines()
+    if result and "error" in result:
+        return {"status": "error", "error": result["error"]}
+    return {"status": "ok", "result": result}
+
+
+@mcp.tool()
+def list_data_stores() -> dict[str, Any]:
+    """List registered data stores on the hosting server (requires admin privileges).
+
+    Returns databases, folders, and cloud stores registered with the server.
+
+    Returns:
+        Data items array with names, types, and connection info.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    result = client.list_data_stores()
+    if result and "error" in result:
+        return {"status": "error", "error": result["error"]}
+    return {"status": "ok", "result": result}
+
+
+# =========================================================================
 # Phase 2, Feature CRUD
 # =========================================================================
 
@@ -1266,6 +1434,64 @@ def delete_features(
     return {"status": "ok", "result": result}
 
 
+@mcp.tool()
+def apply_edits_batch(
+    service_url: str,
+    layer_id: int,
+    adds: str = "",
+    updates: str = "",
+    deletes: str = "",
+    rollback_on_failure: bool = True,
+) -> dict[str, Any]:
+    """Apply adds, updates, and deletes to a feature layer in one transaction.
+
+    More efficient than calling add/update/delete separately, and atomic when
+    rollback_on_failure is true (all edits succeed or none are applied).
+
+    Args:
+        service_url: Feature service URL
+        layer_id: Layer ID
+        adds: JSON array of features to add, e.g. '[{"attributes": {"NAME": "A"}}]'
+        updates: JSON array of features to update (each must include OBJECTID)
+        deletes: Comma-separated OBJECTIDs to delete (e.g. "1,2,3")
+        rollback_on_failure: Roll back all edits if any single edit fails (default true)
+
+    Returns:
+        addResults, updateResults, and deleteResults arrays.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    svc_err = _check_service_url(service_url)
+    if svc_err:
+        return {"status": "error", "error": svc_err}
+
+    if not adds and not updates and not deletes:
+        return {"status": "error", "error": "Provide at least one of adds, updates, deletes"}
+
+    # Validate JSON payloads before sending
+    for name, payload in (("adds", adds), ("updates", updates)):
+        if payload:
+            try:
+                parsed = json.loads(payload)
+                if not isinstance(parsed, list):
+                    return {"status": "error", "error": f"{name} must be a JSON array"}
+            except json.JSONDecodeError as e:
+                return {"status": "error", "error": f"{name} is not valid JSON: {e}"}
+
+    result = client.apply_edits(
+        service_url, layer_id,
+        adds=adds or None,
+        updates=updates or None,
+        deletes=deletes or None,
+        rollback_on_failure=rollback_on_failure,
+    )
+    if result and "error" in result:
+        return {"status": "error", "error": result["error"]}
+    return {"status": "ok", "result": result}
+
+
 # =========================================================================
 # Phase 2, User / Group Management
 # =========================================================================
@@ -1371,6 +1597,8 @@ def update_item(
     snippet: str = "",
     tags: str = "",
     access: str = "",
+    access_information: str = "",
+    license_info: str = "",
 ) -> dict[str, Any]:
     """Update properties of an existing portal item.
 
@@ -1383,6 +1611,8 @@ def update_item(
         snippet: New summary/snippet.
         tags: Comma-separated tags to set (replaces existing tags).
         access: New access level, "private", "org", or "public".
+        access_information: Access constraints / use limitations text.
+        license_info: License information / terms of use text.
 
     Returns:
         Update result.
@@ -1402,6 +1632,8 @@ def update_item(
         snippet=snippet or None,
         tags=tags or None,
         access=access or None,
+        access_information=access_information or None,
+        license_info=license_info or None,
     )
     return {"status": "ok", "result": result}
 
@@ -1484,6 +1716,26 @@ def get_item_data(item_id: str) -> dict[str, Any]:
 
     result = client.get_item_data(item_id)
     return {"status": "ok", "data": result}
+
+
+@mcp.tool()
+def get_item_thumbnail(item_id: str) -> dict[str, Any]:
+    """Download an item's thumbnail image to a local file.
+
+    Args:
+        item_id: The item ID.
+
+    Returns:
+        Local file path of the downloaded thumbnail image.
+    """
+    client = _require_connected()
+    if not client:
+        return {"status": "error", "error": "Not connected. Call connect_portal first."}
+
+    result = client.get_item_thumbnail(item_id)
+    if "error" in result:
+        return {"status": "error", "error": result["error"]}
+    return {"status": "ok", "result": result}
 
 
 # =========================================================================

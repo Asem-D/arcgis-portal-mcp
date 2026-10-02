@@ -1,6 +1,6 @@
 # arcgis-portal-mcp
 
-**v1.14.0.** 73 tools for ArcGIS Enterprise Portal and ArcGIS Online.
+**v1.15.0.** 81 tools for ArcGIS Enterprise Portal and ArcGIS Online.
 
 A Model Context Protocol (MCP) server that gives AI assistants direct access to your ArcGIS content. Search, inspect, edit, publish, and admin through natural language.
 
@@ -391,7 +391,7 @@ User: Show me items nobody has touched in over a year
 Agent: [calls find_stale_items with days_threshold=365]
 ```
 
-## Available Tools (73)
+## Available Tools (81)
 
 ### Discovery and Inspection
 
@@ -402,13 +402,14 @@ Agent: [calls find_stale_items with days_threshold=365]
 | `get_item_details` | Get detailed metadata for a specific item |
 | `list_layers` | List layers in a feature/map service with geometry types and counts |
 | `describe_layer` | Get full layer schema: fields, types, domains, subtypes, relationships, extent, renderer |
-| `query_features` | Query features with attribute/spatial filters and pagination |
+| `query_features` | Query features with attribute/spatial filters, pagination, and distinct values |
 | `list_users` | List portal users with roles and status |
 | `list_groups` | List portal groups with access levels |
 | `portal_health` | Check portal health and system status |
 | `server_status` | Check MCP server connection state |
 | `search_users` | Search portal users by name, email, or username |
 | `check_service_health` | Ping a service endpoint and return status, latency, version, and capabilities |
+| `get_item_thumbnail` | Download an item's thumbnail image to a local file |
 
 ### Feature CRUD, User/Group and Content Management
 
@@ -417,6 +418,7 @@ Agent: [calls find_stale_items with days_threshold=365]
 | `add_features` | Add new features to a hosted feature layer |
 | `update_features` | Update existing features (by OBJECTID) |
 | `delete_features` | Delete features by OBJECTIDs or WHERE clause |
+| `apply_edits_batch` | Apply adds, updates, and deletes in one atomic transaction |
 | `get_user_details` | Get detailed user profile (role, privileges, storage, last login) |
 | `create_group` | Create a new group with access control |
 | `update_group` | Update group properties (title, description, visibility) |
@@ -424,7 +426,7 @@ Agent: [calls find_stale_items with days_threshold=365]
 | `list_group_users` | List users in a specific group |
 | `invite_to_group` | Invite users to a group with a role assignment |
 | `remove_from_group` | Remove users from a group |
-| `update_item` | Update item properties (title, description, tags, access) |
+| `update_item` | Update item properties (title, description, tags, access, accessInformation, licenseInfo) |
 | `delete_item` | Delete an item from the portal |
 | `share_item` | Share/unshare an item with everyone, org, or specific groups |
 | `get_item_data` | Read item data (web map JSON, app config, feature collections) |
@@ -495,6 +497,17 @@ Agent: [calls find_stale_items with days_threshold=365]
 | `find_stale_items` | Find items not modified in N days with governance violation detection |
 | `export_group_content` | Export group items to an .epk package for content migration (Enterprise only) |
 | `import_group_content` | Import items from an .epk package into a target group (Enterprise only) |
+
+### Server Administration (v1.15.0, Enterprise only)
+
+| Tool | Description |
+|------|-------------|
+| `list_server_services` | List services on the hosting server with statuses, per folder |
+| `get_service_details` | Get full admin configuration of a service (status, instances, capabilities) |
+| `start_service` | Start a stopped service on the hosting server |
+| `stop_service` | Stop a service (destructive, requires confirm=true) |
+| `list_server_machines` | List machines in the hosting server site with roles and statuses |
+| `list_data_stores` | List registered data stores (databases, folders, cloud stores) |
 
 ## Authentication Methods
 
@@ -569,7 +582,7 @@ Restricts which tools the AI client can see and invoke. When set, only the named
 MCP_ALLOWED_TOOLS=search_content,query_features,list_layers,describe_layer,portal_health
 ```
 
-When unset (the default), all 73 tools are available. Tools not on the list are invisible to the AI client and rejected if called directly.
+When unset (the default), all 81 tools are available. Tools not on the list are invisible to the AI client and rejected if called directly.
 
 ### Audit Logging (v1.9.0)
 

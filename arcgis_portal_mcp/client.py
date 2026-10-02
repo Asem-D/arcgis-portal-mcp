@@ -54,6 +54,7 @@ class ArcGISClient:
         self._user_info: dict[str, Any] | None = None
         self._auth_method: str | None = None
         self._reconnect_params: dict[str, str] = {}  # stored for auto-refresh
+        self._server_admin_url: str = ""  # cached hosting server admin base URL
         self._session = requests.Session()
         # TLS verification: ON by default (MCP_TLS_VERIFY defaults to true).
         # Set MCP_TLS_VERIFY=false in .env for Enterprise portals with self-signed certs.
@@ -445,6 +446,101 @@ class ArcGISClient:
             logger.error("Admin API returned non-JSON at %s", endpoint)
             return {"error": "Non-JSON response"}
 
+    def _get_server_admin_url(self) -> str | None:
+        """Derive the hosting server admin URL from the portal's helper services.
+
+        ArcGIS Enterprise 12.x no longer exposes a servicesServer field in
+        /portals/self, so we derive the base from the geometry helper service
+        URL (e.g. https://host/arcgis/rest/services/Geometry/GeometryServer)
+        and cache the result.
+        """
+        if self._server_admin_url:
+            return self._server_admin_url
+
+        portal_info = self.get_portal_info()
+        if not portal_info or "error" in portal_info:
+            logger.error("Cannot derive server admin URL: portal info unavailable")
+            return None
+
+        helpers = portal_info.get("helperServices", {})
+        geometry = helpers.get("geometry", {})
+        geom_url = geometry.get("url", "") if isinstance(geometry, dict) else ""
+        if "/rest/services/" not in geom_url:
+            logger.error(
+                "Cannot derive server admin URL from helperServices.geometry.url: %s",
+                geom_url,
+            )
+            return None
+
+        base = geom_url.split("/rest/services/")[0].rstrip("/")
+        self._server_admin_url = f"{base}/admin"
+        return self._server_admin_url
+
+    def _server_admin_request(
+        self, url: str, params: dict[str, Any] | None = None,
+        method: str = "GET", _retried: bool = False,
+    ) -> dict[str, Any] | None:
+        """Make a request to the hosting server Admin API (requires admin).
+
+        Unlike admin_request (which targets {portal}/portaladmin), this targets
+        the ArcGIS Server admin endpoint derived from helperServices.
+
+        Args:
+            url: Full admin endpoint URL
+            params: Additional parameters
+            method: HTTP method
+
+        Returns:
+            JSON response dict, or None on error.
+        """
+        if not self.is_connected:
+            if not _retried and self._try_reconnect():
+                return self._server_admin_request(
+                    url, params=params, method=method, _retried=True,
+                )
+            logger.error("Token expired, reconnect first")
+            return None
+
+        params = dict(params or {})
+        params["f"] = "json"
+        params["token"] = self._token  # type: ignore[arg-type]
+
+        try:
+            if method.upper() == "GET":
+                resp = self._session.get(url, params=params, timeout=30)
+            else:
+                resp = self._session.post(url, data=params, timeout=30)
+
+            resp.raise_for_status()
+            data = resp.json()
+
+            if "error" in data:
+                error = data["error"]
+                error_code = error.get("code") if isinstance(error, dict) else 0
+                is_auth_error = (
+                    error_code in (498, 499)
+                    or "Invalid token" in str(error)
+                    or "token expired" in str(error).lower()
+                )
+                if is_auth_error and not _retried and self._try_reconnect():
+                    return self._server_admin_request(
+                        url, params=params, method=method, _retried=True,
+                    )
+                logger.warning("Server admin API error at %s: %s", url, error)
+                return {"error": error}
+
+            return data
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response is not None else 0
+            logger.error("Server admin HTTP %d at %s: %s", status, url, e)
+            return {"error": str(e), "http_status": status}
+        except requests.exceptions.RequestException as e:
+            logger.error("Server admin request failed: %s", e)
+            return {"error": str(e)}
+        except json.JSONDecodeError:
+            logger.error("Server admin API returned non-JSON at %s", url)
+            return {"error": "Non-JSON response"}
+
     # ------------------------------------------------------------------
     # Convenience methods
     # ------------------------------------------------------------------
@@ -740,6 +836,8 @@ class ArcGISClient:
         snippet: str | None = None,
         tags: str | None = None,
         access: str | None = None,
+        access_information: str | None = None,
+        license_info: str | None = None,
     ) -> dict[str, Any]:
         """Update item properties on the portal.
 
@@ -750,6 +848,8 @@ class ArcGISClient:
             snippet: New snippet/summary
             tags: Comma-separated tags
             access: New access level (private, org, public)
+            access_information: Access constraints / use limitations text
+            license_info: License information / terms of use text
 
         Returns:
             Dict with success status.
@@ -771,6 +871,10 @@ class ArcGISClient:
             data["tags"] = tags
         if access is not None:
             data["access"] = access
+        if access_information is not None:
+            data["accessInformation"] = access_information
+        if license_info is not None:
+            data["licenseInfo"] = license_info
 
         if not data:
             return {"error": "No properties to update"}
@@ -2126,6 +2230,190 @@ class ArcGISClient:
                 "error": str(e),
                 "service_url": service_url,
             }
+
+    # ------------------------------------------------------------------
+    # Server Administration (v1.15.0)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _service_url_to_admin(service_url: str) -> str:
+        """Convert a public service URL to its admin endpoint equivalent.
+
+        e.g. https://host/arcgis/rest/services/Folder/Name.FeatureServer
+          -> https://host/arcgis/admin/services/Folder/Name.FeatureServer
+        """
+        url = service_url.rstrip("/")
+        if "/rest/services/" in url:
+            url = url.replace("/rest/services/", "/admin/services/")
+        return url
+
+    def list_server_services(self, folder: str = "") -> dict[str, Any]:
+        """List services on the hosting server (requires admin privileges).
+
+        Args:
+            folder: Folder name to list (empty = root folder). Use "*" for all.
+
+        Returns:
+            Dict with services array and folder listing.
+        """
+        admin_url = self._get_server_admin_url()
+        if not admin_url:
+            return {"error": "Server admin URL unavailable (not connected or derivation failed)"}
+        endpoint = f"{admin_url}/services/{folder}" if folder else f"{admin_url}/services"
+        return self._server_admin_request(endpoint) or {"error": "Request failed"}
+
+    def get_service_details(self, service_url: str) -> dict[str, Any]:
+        """Get full admin configuration of a service (requires admin).
+
+        Args:
+            service_url: Full service URL (e.g. .../FeatureServer)
+
+        Returns:
+            Service configuration JSON. Stopped services return
+            {"status": "error"} from the server — expected behavior.
+        """
+        return self._server_admin_request(self._service_url_to_admin(service_url)) or {
+            "error": "Request failed",
+        }
+
+    def start_service(self, service_url: str) -> dict[str, Any]:
+        """Start a stopped service on the hosting server (requires admin).
+
+        Args:
+            service_url: Full service URL (e.g. .../FeatureServer)
+
+        Returns:
+            Start status from the server.
+        """
+        url = f"{self._service_url_to_admin(service_url)}/start"
+        return self._server_admin_request(url, method="POST") or {"error": "Request failed"}
+
+    def stop_service(self, service_url: str) -> dict[str, Any]:
+        """Stop a service on the hosting server (requires admin).
+
+        Args:
+            service_url: Full service URL (e.g. .../FeatureServer)
+
+        Returns:
+            Stop status from the server.
+        """
+        url = f"{self._service_url_to_admin(service_url)}/stop"
+        return self._server_admin_request(url, method="POST") or {"error": "Request failed"}
+
+    def list_server_machines(self) -> dict[str, Any]:
+        """List machines in the hosting server site (requires admin).
+
+        Returns:
+            Machine list with names, roles, and statuses.
+        """
+        admin_url = self._get_server_admin_url()
+        if not admin_url:
+            return {"error": "Server admin URL unavailable (not connected or derivation failed)"}
+        return self._server_admin_request(f"{admin_url}/machines") or {"error": "Request failed"}
+
+    def list_data_stores(self) -> dict[str, Any]:
+        """List registered data stores on the hosting server (requires admin).
+
+        Returns:
+            Data items array (databases, folders, cloud stores) with names,
+            types, and connection info.
+        """
+        admin_url = self._get_server_admin_url()
+        if not admin_url:
+            return {"error": "Server admin URL unavailable (not connected or derivation failed)"}
+        return self._server_admin_request(f"{admin_url}/data/items") or {"error": "Request failed"}
+
+    def apply_edits(
+        self,
+        service_url: str,
+        layer_id: int,
+        adds: str | None = None,
+        updates: str | None = None,
+        deletes: str | None = None,
+        rollback_on_failure: bool = True,
+    ) -> dict[str, Any]:
+        """Apply adds/updates/deletes to a feature layer in one transaction.
+
+        Args:
+            service_url: Feature service URL
+            layer_id: Layer ID
+            adds: JSON array string of features to add
+            updates: JSON array string of features to update (each needs OBJECTID)
+            deletes: Comma-separated OBJECTIDs to delete
+            rollback_on_failure: Roll back the whole transaction if any edit fails
+
+        Returns:
+            Dict with addResults, updateResults, deleteResults arrays.
+        """
+        if not adds and not updates and not deletes:
+            return {"error": "Provide at least one of adds, updates, deletes"}
+
+        url = f"{service_url.rstrip('/')}/{layer_id}/applyEdits"
+        data: dict[str, Any] = {
+            "f": "json",
+            "rollbackOnFailure": str(rollback_on_failure).lower(),
+        }
+        if adds:
+            data["adds"] = adds
+        if updates:
+            data["updates"] = updates
+        if deletes:
+            data["deletes"] = deletes
+        t = self.token
+        if t:
+            data["token"] = t
+        try:
+            resp = self._session.post(url, data=data, timeout=60)
+            resp.raise_for_status()
+            result = resp.json()
+            if "error" in result:
+                return {"error": result["error"]}
+            return result
+        except requests.exceptions.RequestException as e:
+            return {"error": str(e)}
+
+    def get_item_thumbnail(self, item_id: str) -> dict[str, Any]:
+        """Download an item's thumbnail image to a local file.
+
+        Args:
+            item_id: The item ID
+
+        Returns:
+            Dict with the local file path and size, or error.
+        """
+        import tempfile
+        from pathlib import Path
+
+        details = self.get_item_details(item_id)
+        if not details or "error" in details:
+            return {"error": f"Could not retrieve item {item_id}"}
+
+        thumb_name = details.get("thumbnail", "")
+        if not thumb_name:
+            return {"error": "Item has no thumbnail"}
+
+        # Thumbnail may be a bare filename (relative to the sharing REST info
+        # endpoint) or an absolute URL (some items store full URLs).
+        if thumb_name.startswith("http"):
+            thumb_url = thumb_name
+        else:
+            thumb_url = (
+                f"{self.sharing_url.rstrip('/')}/rest/content/items/"
+                f"{item_id}/info/{thumb_name}"
+            )
+
+        try:
+            resp = self._session.get(thumb_url, timeout=30)
+            resp.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            return {"error": f"Thumbnail download failed: {e}"}
+
+        out_dir = Path(tempfile.gettempdir()) / "arcgis_portal_mcp" / "thumbnails"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        filename = thumb_name.split("/")[-1].split("?")[0] or f"{item_id}.png"
+        out_path = out_dir / f"{item_id}_{filename}"
+        out_path.write_bytes(resp.content)
+        return {"file_path": str(out_path), "bytes": len(resp.content)}
 
     # ------------------------------------------------------------------
     # Batch Operations (Phase 3)

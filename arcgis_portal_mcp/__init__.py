@@ -7,4 +7,4 @@ with Claude Desktop, Cursor, VS Code Copilot, and other MCP clients.
 No dependency on the `arcgis` Python package. Uses raw REST API calls.
 """
 
-__version__ = "1.14.0"  # v1.14.0: publish/upload wire-format fixes (addItem, fileType, user GUID, CSV layerInfo)
+__version__ = "1.15.0"  # v1.15.0: server admin tools, applyEdits batch, thumbnails, distinct values

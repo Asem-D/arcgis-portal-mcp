@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.15.0 (2026-10-03)
+
+### New Tools (8, total 81)
+- **Server administration** (Enterprise only, requires admin): `list_server_services`, `get_service_details`, `start_service`, `stop_service` (requires `confirm=true`), `list_server_machines`, `list_data_stores`. The hosting server admin URL is derived from `helperServices.geometry.url` because ArcGIS Enterprise 12.x no longer exposes a `servicesServer` field in `/portals/self`.
+- **`apply_edits_batch`**: adds, updates, and deletes in one atomic `applyEdits` transaction with `rollback_on_failure` (default true). JSON payloads validated before sending.
+- **`get_item_thumbnail`**: downloads an item's thumbnail to a local file (`%TEMP%/arcgis_portal_mcp/thumbnails/`).
+
+### Enhancements
+- **`update_item`**: new `access_information` (accessInformation) and `license_info` (licenseInfo) parameters.
+- **`query_features`**: new `return_distinct_values` parameter (SQL DISTINCT behavior; geometry suppressed, pagination params dropped per ArcGIS requirements).
+
+### Documentation
+- New `docs/enterprise-12x-wire-format.md`: live-verified wire-format notes for ArcGIS Enterprise 12.x (upload/publish endpoints, GUID requirement, server admin URL derivation, stopped-service error behavior).
+
+### Tests
+- 27 new tests (223 total): server admin URL derivation and caching, rest-to-admin URL conversion, start/stop endpoints, applyEdits payload wire format, thumbnail download, distinct-values query params, stop_service confirm guard, JSON payload validation.
+
 ## v1.14.0 (2026-10-01)
 
 ### Bug Fixes

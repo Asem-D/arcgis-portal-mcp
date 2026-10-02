@@ -53,9 +53,9 @@ def test_client_connect_bad_token():
 
 
 def test_server_tools_count():
-    """Server should expose exactly 73 tools."""
+    """Server should expose exactly 81 tools."""
     tool_names = mcp._tool_manager._tools.keys()
-    assert len(list(tool_names)) == 73
+    assert len(list(tool_names)) == 81
 
 
 def test_server_tool_names():
@@ -96,6 +96,10 @@ def test_server_tool_names():
         "export_group_content", "import_group_content",
         # User lifecycle & portal inventory (v1.12.0)
         "bulk_reassign_ownership", "portal_inventory", "offboard_user",
+        # Server admin & batch edits (v1.15.0)
+        "list_server_services", "get_service_details", "start_service",
+        "stop_service", "list_server_machines", "list_data_stores",
+        "apply_edits_batch", "get_item_thumbnail",
     }
     actual = set(mcp._tool_manager._tools.keys())
     assert actual == expected, f"Missing: {expected - actual}, Extra: {actual - expected}"
@@ -2505,3 +2509,394 @@ def test_client_offboard_user_not_found():
     with patch.object(client, "get_user_details", return_value={"error": "User not found"}):
         result = client.offboard_user("ghost", "bob")
         assert "error" in result
+
+
+# ------------------------------------------------------------------
+# Server admin & batch edits (v1.15.0)
+# ------------------------------------------------------------------
+
+
+def test_client_get_server_admin_url_derivation():
+    """_get_server_admin_url should derive admin base from geometry helper URL."""
+    client = ArcGISClient()
+    with patch.object(client, "get_portal_info", return_value={
+        "helperServices": {
+            "geometry": {
+                "url": "https://gis.example.com/arcgis/rest/services/Geometry/GeometryServer",
+            },
+        },
+    }):
+        url = client._get_server_admin_url()
+        assert url == "https://gis.example.com/arcgis/admin"
+        # Result should be cached (second call does not re-fetch)
+        assert client._server_admin_url == url
+
+
+def test_client_get_server_admin_url_missing_helpers():
+    """_get_server_admin_url should return None when helperServices is unusable."""
+    client = ArcGISClient()
+    with patch.object(client, "get_portal_info", return_value={"helperServices": {}}):
+        assert client._get_server_admin_url() is None
+
+
+def test_client_service_url_to_admin():
+    """_service_url_to_admin should convert rest URLs to admin URLs."""
+    convert = ArcGISClient._service_url_to_admin
+    assert convert(
+        "https://host/arcgis/rest/services/Folder/Name.FeatureServer",
+    ) == "https://host/arcgis/admin/services/Folder/Name.FeatureServer"
+    assert convert(
+        "https://host/arcgis/rest/services/Name.MapServer/",
+    ) == "https://host/arcgis/admin/services/Name.MapServer"
+    # Non-rest URLs pass through unchanged
+    assert convert("https://host/arcgis/admin/services/X") == "https://host/arcgis/admin/services/X"
+
+
+def test_client_list_server_services():
+    """list_server_services should GET {admin}/services[/{folder}]."""
+    client = ArcGISClient()
+    client._token = "tok"
+    client._token_expires = 9999999999999
+    with patch.object(client, "_get_server_admin_url", return_value="https://host/arcgis/admin"):
+        with patch.object(client, "_server_admin_request", return_value={"services": []}) as mock_req:
+            result = client.list_server_services()
+            assert result == {"services": []}
+            mock_req.assert_called_once_with("https://host/arcgis/admin/services")
+            client.list_server_services(folder="Utilities")
+            mock_req.assert_called_with("https://host/arcgis/admin/services/Utilities")
+
+
+def test_client_list_server_services_no_admin_url():
+    """list_server_services should error when admin URL derivation fails."""
+    client = ArcGISClient()
+    with patch.object(client, "_get_server_admin_url", return_value=None):
+        result = client.list_server_services()
+        assert "error" in result
+
+
+def test_client_start_stop_service():
+    """start/stop_service should POST to the admin start/stop endpoints."""
+    client = ArcGISClient()
+    client._token = "tok"
+    client._token_expires = 9999999999999
+    with patch.object(client, "_server_admin_request", return_value={"status": "success"}) as mock_req:
+        client.start_service("https://host/arcgis/rest/services/Test.FeatureServer")
+        mock_req.assert_called_with(
+            "https://host/arcgis/admin/services/Test.FeatureServer/start",
+            method="POST",
+        )
+        client.stop_service("https://host/arcgis/rest/services/Test.FeatureServer")
+        mock_req.assert_called_with(
+            "https://host/arcgis/admin/services/Test.FeatureServer/stop",
+            method="POST",
+        )
+
+
+def test_client_list_server_machines_and_data_stores():
+    """Machines and data stores should hit the admin /machines and /data/items."""
+    client = ArcGISClient()
+    client._token = "tok"
+    client._token_expires = 9999999999999
+    with patch.object(client, "_get_server_admin_url", return_value="https://host/arcgis/admin"):
+        with patch.object(client, "_server_admin_request", return_value={"machines": []}) as mock_req:
+            client.list_server_machines()
+            mock_req.assert_called_with("https://host/arcgis/admin/machines")
+            client.list_data_stores()
+            mock_req.assert_called_with("https://host/arcgis/admin/data/items")
+
+
+def test_client_apply_edits_payload():
+    """apply_edits should POST adds/updates/deletes to the applyEdits endpoint."""
+    client = ArcGISClient()
+    client._token = "tok"
+    client._token_expires = 9999999999999
+    with patch.object(client._session, "post") as mock_post:
+        mock_post.return_value = MagicMock(
+            raise_for_status=MagicMock(),
+            json=lambda: {"addResults": [{"success": True}], "updateResults": [], "deleteResults": []},
+        )
+        result = client.apply_edits(
+            "https://example.com/FeatureServer", 0,
+            adds='[{"attributes": {"NAME": "A"}}]',
+            deletes="1,2",
+        )
+        assert "addResults" in result
+        url = mock_post.call_args[0][0]
+        assert url.endswith("/0/applyEdits")
+        data = mock_post.call_args.kwargs["data"]
+        assert data["adds"] == '[{"attributes": {"NAME": "A"}}]'
+        assert data["deletes"] == "1,2"
+        assert data["rollbackOnFailure"] == "true"
+
+
+def test_client_apply_edits_requires_payload():
+    """apply_edits with no edits should return an error."""
+    client = ArcGISClient()
+    result = client.apply_edits("https://example.com/FeatureServer", 0)
+    assert "error" in result
+
+
+def test_client_get_item_thumbnail_success():
+    """get_item_thumbnail should download and save the thumbnail locally."""
+    from pathlib import Path
+
+    client = ArcGISClient()
+    client.sharing_url = "https://example.com/sharing"
+    with patch.object(client, "get_item_details", return_value={"thumbnail": "thumb.png"}):
+        with patch.object(client._session, "get") as mock_get:
+            mock_get.return_value = MagicMock(
+                raise_for_status=MagicMock(),
+                content=b"fakepng",
+            )
+            result = client.get_item_thumbnail("item123")
+            assert result["bytes"] == 7
+            assert "item123_thumb.png" in result["file_path"]
+            assert Path(result["file_path"]).exists()
+            Path(result["file_path"]).unlink()
+            url = mock_get.call_args[0][0]
+            assert url == "https://example.com/sharing/rest/content/items/item123/info/thumb.png"
+
+
+def test_client_get_item_thumbnail_missing():
+    """get_item_thumbnail should error when the item has no thumbnail."""
+    client = ArcGISClient()
+    with patch.object(client, "get_item_details", return_value={"thumbnail": ""}):
+        result = client.get_item_thumbnail("item123")
+        assert "error" in result
+        assert "no thumbnail" in result["error"]
+
+
+def test_client_update_item_access_information():
+    """update_item should include accessInformation/licenseInfo in the payload."""
+    client = ArcGISClient()
+    with patch.object(client, "get_item_details", return_value={"owner": "alice"}):
+        with patch.object(client, "_sharing_request", return_value={"success": True}) as mock_req:
+            result = client.update_item("item123", access_information="Internal", license_info="CC-BY")
+            assert result == {"success": True}
+            assert mock_req.call_args[0][0] == "/content/users/alice/items/item123/update"
+            params = mock_req.call_args.kwargs["params"]
+            assert params["accessInformation"] == "Internal"
+            assert params["licenseInfo"] == "CC-BY"
+
+
+def test_list_server_services_tool():
+    """list_server_services should call client.list_server_services."""
+    from arcgis_portal_mcp.server import list_server_services
+
+    mock_client = MagicMock()
+    mock_client.list_server_services.return_value = {
+        "services": [{"serviceName": "Test", "type": "MapServer"}],
+        "folders": ["Utilities"],
+    }
+    with patch("arcgis_portal_mcp.server._require_connected", return_value=mock_client):
+        result = list_server_services()
+        assert result["status"] == "ok"
+        assert result["result"]["services"][0]["serviceName"] == "Test"
+        mock_client.list_server_services.assert_called_once_with(folder="")
+
+
+def test_get_service_details_tool():
+    """get_service_details should call client.get_service_details."""
+    from arcgis_portal_mcp.server import get_service_details
+
+    mock_client = MagicMock()
+    mock_client.get_service_details.return_value = {"status": "Started", "instances": 2}
+    with patch("arcgis_portal_mcp.server._require_connected", return_value=mock_client):
+        result = get_service_details(
+            service_url="https://example.com/arcgis/rest/services/Test/FeatureServer",
+        )
+        assert result["status"] == "ok"
+        assert result["result"]["status"] == "Started"
+
+
+def test_start_service_tool():
+    """start_service should call client.start_service."""
+    from arcgis_portal_mcp.server import start_service
+
+    mock_client = MagicMock()
+    mock_client.start_service.return_value = {"status": "success"}
+    with patch("arcgis_portal_mcp.server._require_connected", return_value=mock_client):
+        result = start_service(service_url="https://example.com/FeatureServer")
+        assert result["status"] == "ok"
+        mock_client.start_service.assert_called_once_with("https://example.com/FeatureServer")
+
+
+def test_stop_service_requires_confirm():
+    """stop_service without confirm=true should refuse and not call the client."""
+    from arcgis_portal_mcp.server import stop_service
+
+    mock_client = MagicMock()
+    with patch("arcgis_portal_mcp.server._require_connected", return_value=mock_client):
+        result = stop_service(service_url="https://example.com/FeatureServer")
+        assert result["status"] == "error"
+        assert "confirm=true" in result["error"]
+        mock_client.stop_service.assert_not_called()
+
+
+def test_stop_service_with_confirm():
+    """stop_service with confirm=true should call client.stop_service."""
+    from arcgis_portal_mcp.server import stop_service
+
+    mock_client = MagicMock()
+    mock_client.stop_service.return_value = {"status": "success"}
+    with patch("arcgis_portal_mcp.server._require_connected", return_value=mock_client):
+        result = stop_service(service_url="https://example.com/FeatureServer", confirm=True)
+        assert result["status"] == "ok"
+        mock_client.stop_service.assert_called_once_with("https://example.com/FeatureServer")
+
+
+def test_list_server_machines_tool():
+    """list_server_machines should call client.list_server_machines."""
+    from arcgis_portal_mcp.server import list_server_machines
+
+    mock_client = MagicMock()
+    mock_client.list_server_machines.return_value = {
+        "machines": [{"machineName": "SRV1", "status": "STARTED"}],
+    }
+    with patch("arcgis_portal_mcp.server._require_connected", return_value=mock_client):
+        result = list_server_machines()
+        assert result["status"] == "ok"
+        assert result["result"]["machines"][0]["machineName"] == "SRV1"
+
+
+def test_list_data_stores_tool():
+    """list_data_stores should call client.list_data_stores."""
+    from arcgis_portal_mcp.server import list_data_stores
+
+    mock_client = MagicMock()
+    mock_client.list_data_stores.return_value = {
+        "items": [{"name": "gisdb", "type": "egdb"}],
+    }
+    with patch("arcgis_portal_mcp.server._require_connected", return_value=mock_client):
+        result = list_data_stores()
+        assert result["status"] == "ok"
+        assert result["result"]["items"][0]["name"] == "gisdb"
+
+
+def test_apply_edits_batch_invalid_json():
+    """apply_edits_batch should reject invalid JSON payloads."""
+    from arcgis_portal_mcp.server import apply_edits_batch
+
+    mock_client = MagicMock()
+    with patch("arcgis_portal_mcp.server._require_connected", return_value=mock_client):
+        result = apply_edits_batch("https://example.com/FeatureServer", 0, adds="not json!")
+        assert result["status"] == "error"
+        assert "not valid JSON" in result["error"]
+
+
+def test_apply_edits_batch_rejects_non_array():
+    """apply_edits_batch should reject JSON payloads that are not arrays."""
+    from arcgis_portal_mcp.server import apply_edits_batch
+
+    mock_client = MagicMock()
+    with patch("arcgis_portal_mcp.server._require_connected", return_value=mock_client):
+        result = apply_edits_batch("https://example.com/FeatureServer", 0, adds='{"a": 1}')
+        assert result["status"] == "error"
+        assert "must be a JSON array" in result["error"]
+
+
+def test_apply_edits_batch_requires_payload():
+    """apply_edits_batch with no edits should return an error."""
+    from arcgis_portal_mcp.server import apply_edits_batch
+
+    mock_client = MagicMock()
+    with patch("arcgis_portal_mcp.server._require_connected", return_value=mock_client):
+        result = apply_edits_batch("https://example.com/FeatureServer", 0)
+        assert result["status"] == "error"
+        assert "at least one" in result["error"]
+
+
+def test_apply_edits_batch_success():
+    """apply_edits_batch should pass payloads through to client.apply_edits."""
+    from arcgis_portal_mcp.server import apply_edits_batch
+
+    mock_client = MagicMock()
+    mock_client.apply_edits.return_value = {
+        "addResults": [{"success": True, "objectId": 10}],
+        "updateResults": [],
+        "deleteResults": [],
+    }
+    with patch("arcgis_portal_mcp.server._require_connected", return_value=mock_client):
+        result = apply_edits_batch(
+            "https://example.com/FeatureServer", 0,
+            adds='[{"attributes": {"NAME": "A"}}]',
+            deletes="1,2",
+        )
+        assert result["status"] == "ok"
+        assert result["result"]["addResults"][0]["objectId"] == 10
+        mock_client.apply_edits.assert_called_once_with(
+            "https://example.com/FeatureServer", 0,
+            adds='[{"attributes": {"NAME": "A"}}]',
+            updates=None,
+            deletes="1,2",
+            rollback_on_failure=True,
+        )
+
+
+def test_get_item_thumbnail_tool():
+    """get_item_thumbnail should return the local file path."""
+    from arcgis_portal_mcp.server import get_item_thumbnail
+
+    mock_client = MagicMock()
+    mock_client.get_item_thumbnail.return_value = {"file_path": "C:/temp/x.png", "bytes": 123}
+    with patch("arcgis_portal_mcp.server._require_connected", return_value=mock_client):
+        result = get_item_thumbnail(item_id="item123")
+        assert result["status"] == "ok"
+        assert result["result"]["bytes"] == 123
+
+
+def test_get_item_thumbnail_tool_missing():
+    """get_item_thumbnail should surface client errors."""
+    from arcgis_portal_mcp.server import get_item_thumbnail
+
+    mock_client = MagicMock()
+    mock_client.get_item_thumbnail.return_value = {"error": "Item has no thumbnail"}
+    with patch("arcgis_portal_mcp.server._require_connected", return_value=mock_client):
+        result = get_item_thumbnail(item_id="item123")
+        assert result["status"] == "error"
+
+
+def test_update_item_tool_access_information():
+    """update_item tool should pass access_information/license_info through."""
+    from arcgis_portal_mcp.server import update_item
+
+    mock_client = MagicMock()
+    mock_client.update_item.return_value = {"success": True}
+    with patch("arcgis_portal_mcp.server._require_connected", return_value=mock_client):
+        with patch("arcgis_portal_mcp.server._check_item_owner", return_value=None):
+            result = update_item(
+                item_id="item123",
+                access_information="Internal use only",
+                license_info="CC-BY-4.0",
+            )
+            assert result["status"] == "ok"
+            mock_client.update_item.assert_called_once_with(
+                item_id="item123", title=None, description=None, snippet=None,
+                tags=None, access=None,
+                access_information="Internal use only", license_info="CC-BY-4.0",
+            )
+
+
+def test_query_features_return_distinct_values():
+    """query_features with return_distinct_values should set the right params."""
+    from arcgis_portal_mcp.server import query_features
+
+    mock_client = MagicMock()
+    mock_client.token = "tok"
+    mock_client.get_item_details.return_value = {"url": "https://example.com/FeatureServer"}
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {
+        "features": [{"attributes": {"TYPE": "A"}}, {"attributes": {"TYPE": "B"}}],
+    }
+    mock_client._session.get.return_value = mock_resp
+    with patch("arcgis_portal_mcp.server._require_connected", return_value=mock_client):
+        result = query_features(
+            item_id="item123", out_fields="TYPE", return_distinct_values=True,
+        )
+        assert result["status"] == "ok"
+        assert result["count"] == 2
+        assert result["distinct_values"][0]["TYPE"] == "A"
+        params = mock_client._session.get.call_args.kwargs["params"]
+        assert params["returnDistinctValues"] == "true"
+        assert params["returnGeometry"] == "false"
+        assert "resultRecordCount" not in params
